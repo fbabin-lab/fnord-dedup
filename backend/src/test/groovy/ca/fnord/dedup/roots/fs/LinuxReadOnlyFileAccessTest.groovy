@@ -121,7 +121,7 @@ class LinuxReadOnlyFileAccessTest {
     }
     @Test void boundedReadsAndClosingRootReleasesChildren() {
         Path path = fixture.resolve('large')
-        try (def f = new RandomAccessFile(path.toFile(),'rw')) { f.setLength(128L * 1024 * 1024) }
+        try (def f = new RandomAccessFile(path.toFile(),'rw')) { f.setLength(512L * 1024 * 1024) }
         def root = access.openRoot(source)
         def expected = root.metadata(bytes('large'))
         def file = root.openRegular(bytes('large'),expected)

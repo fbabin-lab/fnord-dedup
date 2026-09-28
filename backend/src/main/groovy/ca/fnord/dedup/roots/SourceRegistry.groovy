@@ -40,12 +40,12 @@ class SourceRegistry {
             int excluded = 0
             if (source.enabled) {
                 try (ReadOnlyFileAccess.Root root = access.openRoot(source)) {
-                    identities.put(source.id, root.identity())
                     MountTable table = MountTable.current()
                     rejectApplicationAliases(source, root.identity(), table)
                     backingPaths.put(source.id, table.backingPath(root.identity().mountId, source.containerPath))
                     status = 'AVAILABLE'; detail = 'Read-only source verified at startup.'
-                    if (!source.crossMounts) excluded = MountTable.current().beneath(source.containerPath).size()
+                    if (!source.crossMounts) excluded = table.beneath(source.containerPath).size()
+                    identities.put(source.id, root.identity())
                 } catch (SourceAccessException e) { status = e.code; detail = e.message }
                 catch (IOException | SecurityException e) { status = 'UNAVAILABLE'; detail = 'The configured source is unavailable to this process.' }
                 catch (LinkageError e) { status = 'UNSUPPORTED_PLATFORM'; detail = 'Required Linux native support is unavailable.' }

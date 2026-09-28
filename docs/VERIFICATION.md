@@ -1,4 +1,91 @@
-# M0 verification — 2026-09-28
+# M1 verification — 2026-09-28
+
+Verified code commit: `63a3c2d7eeafefcea6dc7e50165b11751bdefe89`  
+Verified code tree: `8be056fbbe16edf4e6c15a0558a6b3e018ac1c17`  
+Branch: `feature/m1-durable-inventory`  
+Parent: M0 draft, `31f200d9e5313e8866a08b10d29a5c3c7215a2d7`
+
+M1 implementation is ready for review as a separate draft stacked on M0. It adds metadata inventory, durable controls, immutable observations, per-source/directory coverage and stored-result browsing. **The full M1 exit gate is not satisfied.** Docker, native PostgreSQL concurrency/durability, actual backend kill/restart and real mount-change checks remain unverified. Development continued at the user's request; neither M0 nor M1 is being declared deployment-accepted. No hashing, duplicate analysis, signature matching, text indexing, plans or exports are claimed.
+
+## Executed M1 checks
+
+| Check | Result |
+|---|---|
+| Gradle unit/native tests | PASS: 16 tests, no failures/skips. Includes the existing source-safety regression suite. |
+| SQL/application integration suite | PASS in the stated PGlite harness: 14 passed; 2 native-PostgreSQL-only cases explicitly skipped. Five HTTP/security cases and nine inventory/database/native fixture cases passed. |
+| Angular `npm test` | PASS: 6 tests, including exact large values, inert untrusted names, no fake percentage, polling teardown without server cancellation, and exact integer rates. |
+| Angular production `npm run build` | PASS: 475.48 kB initial bundle; estimated transfer 111.76 kB. |
+| Locked generator `npm run api:check` | PASS: generated Angular types match the staged OpenAPI contract; generator npm install uses its lockfile. No runtime dependency pins changed. |
+| Playwright `npm run e2e` | PASS: 2 scenarios against the production Angular bundle, real Spring HTTP API and real native fixture worker. |
+| Production JAR | PASS after a fresh `bootJar --offline --rerun-tasks`: valid ZIP/CRC, 41,416,381 bytes, 279 entries. Test fixture/registry classes are absent. SHA-256 `cea0afb1d6e45d2a356882cd470f18bc9f9be12336bc9e26fd28fcae49e18d8a`. |
+| Review checks | Python/Bash helper parsing, diff whitespace, unchanged license/specification and exact local/remote Git-tree equality pass. No generated source fixtures, credentials, dependencies, screenshots or build artifacts are committed. |
+
+The browser exercised a generated tree with **1,255 observations**: 1,251 regular files, three directories including the root, and one symlink. It created a scan through the form, paused and resumed it, closed the view, reconnected after server completion, and browsed paged database results/file metadata. A separate native integration fixture covered two roots, empty/hidden paths, composed/decomposed Unicode, invalid UTF-8 bytes, control characters, internal/external/loop symlinks and a FIFO. A guarded adapter throws if inventory attempts to open file contents.
+
+Visual inspection and computed-style assertions ran under the production CSP. They exposed Angular's critical-CSS loader depending on an inline event handler blocked by `script-src self`; production builds now use a normal stylesheet link without weakening the policy. The browser also caught and verified fixes for explicit Groovy request-parameter bindings and Angular form submission.
+
+## Commands and harness boundaries
+
+The environment still has no Docker daemon or usable native PostgreSQL service. It used the same test-only PGlite 0.5.8 PostgreSQL 18.3 engine and `@electric-sql/pglite-socket` 0.2.11 as M0. Integration execution was equivalent to:
+
+```bash
+FNORD_TEST_SQL_HARNESS=pglite \
+SPRING_FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK=false \
+FNORD_TEST_DB_URL='jdbc:postgresql://127.0.0.1:55439/postgres?preferQueryMode=simple' \
+./gradlew test integrationTest bootJar --offline
+
+./gradlew bootJar --offline --rerun-tasks
+npm test
+npm run build
+npm run api:check
+```
+
+The local runner provided Java 21 and build-proxy configuration. Frontend commands ran in `frontend`; Gradle commands ran in `backend`. A first artifact inspection found a truncated local JAR; the fresh packaging run above rebuilt and validated the complete archive. This did not change application source.
+
+The harness multiplexes sessions into one PostgreSQL engine. Simple JDBC query mode avoids its extended-protocol/prepared-statement error handling limitations; disabling Flyway's transactional lock avoids its single-engine lock limitation. The test pool explicitly initializes its schema. These are test-harness accommodations, not deployment settings. The production schema, transaction logic and locking requirements remain PostgreSQL-native.
+
+The two skipped tests require genuinely separate PostgreSQL sessions/processes:
+
+- Competing scheduler acquisition and completion/cancel transactions under concurrency.
+- Terminating the test's own database connection during a result transaction, proving rollback and recovery after actual connection loss.
+
+Sequential lease takeover, expiry, late-token rejection, failed-batch rollback, idempotent replay and job transitions passed in the harness. **Those passes do not certify native lock contention, independent sessions, WAL durability, or recovery after an actual database outage.**
+
+For the browser, the test-only `inventoryBrowserFixture` Gradle task started the real Spring app with a generated native fixture registry. The worker, database store and controllers were the production implementations; fixture source reads used the real Linux adapter. Only mount validation/source-registry validation was replaced for those newly generated writable fixtures. The test app is absent from the production JAR and no production flag disables read-only guards. The built Angular bundle was served by a temporary same-origin proxy using the production CSP. Chromium 153.0.8010.0 ran:
+
+```bash
+FNORD_TEST_FIXTURE_MODE=generated-only ./gradlew inventoryBrowserFixture --offline
+# Against that disposable server and its same-origin frontend:
+FNORD_EXPECT_NATIVE_FIXTURES=true FNORD_TEST_URL=http://127.0.0.1:18088 \
+FNORD_TEST_PASSWORD='<disposable test password>' \
+FNORD_CHROMIUM_EXECUTABLE='<local Chromium executable>' npm run e2e
+```
+
+The browser proof is of real native inventory and HTTP/UI integration, not real read-only Docker mounts or Nginx/container operation.
+
+## Acceptance mapping and remaining gate
+
+| Cases | M1 evidence and limits |
+|---|---|
+| AT-10 / AT-06–07 | Real recursive native fixture observations across two roots; hidden/empty/unusual/raw-byte paths, symlinks and FIFO; zero content opens. Browser fixture exercises multiple inventory batches. Actual deployed mount behavior pending. |
+| AT-11 | Stored seconds/nanoseconds agree with native statx; existing one-nanosecond fingerprint regression passes. |
+| AT-12 | Injected metadata/list/root failures preserve other work and prior scans; partial/unavailable coverage propagates correctly. Real non-root permission fixtures pending. |
+| AT-13–14 | Pause/lease takeover after committed and final batches, replay uniqueness, retained original metadata, appended instability and exact counters pass. Actual forced-process-loss testing pending. |
+| AT-15 | Idempotent controls and sequential cancel/pause/recovery transitions pass; late completion/cancel serialization under true concurrency is explicitly unverified. |
+| AT-16 | Browser close/reconnect leaves server work running. Database-state recovery simulation passes; actual backend kill/restart on persistent PostgreSQL pending. |
+| AT-17 | Configuration revision, recorded identity and unavailable/writable-status resume blocks pass with test injection. Actual remount/replacement/included writable submount cases pending. |
+| AT-18 | Sequential lease expiry, second-owner rejection, fencing and transactional rollback pass in the SQL harness. Native concurrency/connection-loss tests are supplied but skipped here. |
+| AT-29 / AT-31 / AT-42 / AT-43 / AT-45 | Stored-only navigation, committed cutoff pagination, exact decimal presentation, authenticated/CSRF-protected inventory routes and escaped names have focused M1 coverage. Full M3 query/annotation acceptance remains later work. |
+
+On a Docker-capable Linux/amd64 host, run `./scripts/test-all` with `FNORD_TEST_SQL_HARNESS` unset so the native cases execute, then `./scripts/smoke-test`. The smoke browser scenario now creates a recursive inventory through the actual read-only mounted root and checks persisted browsing, in addition to its M0 protections and fixture before/after comparison. Neither command's Docker-dependent gate ran here.
+
+Also execute the explicit process-kill/restart, real nested-mount changes, runtime UID/group access and the other M0 deployment checks below. The next feature milestone is **M2: repeated-size SHA-256 candidate hashing and duplicate analysis**, after the outstanding runtime gates and any resulting defects are resolved. Work stops at this reviewable M1 implementation boundary; nothing was merged or deployed.
+
+---
+
+The following record describes the earlier M0 commit; its narrower feature claims are historical.
+
+# Historical M0 verification — 2026-09-28
 
 Code commit: `3d02408ab38119f331bbeb86c9e456ff230e034e`  
 Source tree: `907ece12dde6d472d59d072704a2ffc39ab3b0af`  
@@ -82,4 +169,4 @@ Also validate explicitly prepared disposable nested mounts (`cross-mounts` false
 | AT-43 | HTTP-local authentication, CSRF, session cookies and no credentialed wildcard CORS pass. HTTPS deployment remains unverified. |
 | Other v1 cases | Not delivered or claimed by M0. Follow the original M1–M8 plan. |
 
-Close the outstanding M0 environment gates before advancing to **M1: durable recursive inventory, immutable observations/source snapshots, PostgreSQL job queues/leases, progress, pause/resume/cancel and restart recovery**. Source safety defects must be resolved before scans are enabled.
+At the M0 handoff, M1 was the next feature milestone. Its outstanding Docker acceptance gate remains open and is carried into the current draft above. Source safety defects remain blockers; unavailable environment checks are not reported as passes.

@@ -1,12 +1,13 @@
 openapi: 3.1.0
 info:
-  title: Fnord Dedup foundation API
-  version: 0.1.0-M0
-  description: M0 implemented routes only. No scan, content, filesystem mutation or arbitrary-path endpoints.
+  title: Fnord Dedup inventory API
+  version: 0.2.0-M1
+  description: M1 durable metadata inventory. Inventory-only completion does not imply duplicate analysis or content indexing.
+    No source mutations, raw downloads or arbitrary-path inputs.
 servers:
-  - url: /api/v1
+- url: /api/v1
 security:
-  - session: []
+- session: []
 paths:
   /session:
     get:
@@ -18,48 +19,63 @@ paths:
           description: Session state
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Session' }
+              schema:
+                $ref: '#/components/schemas/Session'
   /session/login:
     post:
       operationId: login
       security: []
       parameters:
-        - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Csrf'
       requestBody:
         required: true
         content:
           application/x-www-form-urlencoded:
             schema:
               type: object
-              required: [username, password]
+              required:
+              - username
+              - password
               properties:
-                username: { type: string }
-                password: { type: string, format: password }
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
       responses:
-        '204': { description: Authenticated; rotated HttpOnly session cookie }
-        '401': { $ref: '#/components/responses/Problem' }
-        '403': { $ref: '#/components/responses/Problem' }
-        '429': { $ref: '#/components/responses/Problem' }
-        '503': { $ref: '#/components/responses/Problem' }
+        '204':
+          description: Authenticated; rotated HttpOnly session cookie
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
   /session/logout:
     post:
       operationId: logout
       parameters:
-        - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Csrf'
       responses:
-        '204': { description: Session invalidated }
-        '403': { $ref: '#/components/responses/Problem' }
+        '204':
+          description: Session invalidated
+        '403':
+          $ref: '#/components/responses/Problem'
   /sources:
     get:
       operationId: sources
-      description: Cached startup validation. Does not perform filesystem reads.
+      description: Cached startup/job validation. Does not perform filesystem reads.
       responses:
         '200':
           description: Registered sources
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SourceList' }
-        '401': { $ref: '#/components/responses/Problem' }
+              schema:
+                $ref: '#/components/schemas/SourceList'
+        '401':
+          $ref: '#/components/responses/Problem'
   /system/info:
     get:
       operationId: systemInfo
@@ -68,8 +84,10 @@ paths:
           description: Implemented capabilities
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SystemInfo' }
-        '401': { $ref: '#/components/responses/Problem' }
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+        '401':
+          $ref: '#/components/responses/Problem'
   /system/health:
     get:
       operationId: health
@@ -79,81 +97,984 @@ paths:
           description: Application and database ready; source availability is independent
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Health' }
+              schema:
+                $ref: '#/components/schemas/Health'
         '503':
           description: Database unavailable
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Health' }
+              schema:
+                $ref: '#/components/schemas/Health'
+  /scans:
+    post:
+      operationId: createScan
+      description: Queue whole registered roots. At most ten unfinished jobs and five creations per actor per minute. Only
+        metadata is inventoried in M1.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Idempotency'
+      responses:
+        '202':
+          description: Queued; not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanCreated'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+    get:
+      operationId: scans
+      description: Scan history, oldest first with a stable committed cutoff.
+      parameters:
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /scans/{scanId}:
+    get:
+      operationId: scan
+      description: Captured source scope, coverage and durable progress. Completion is inventory-only.
+      parameters:
+      - name: scanId
+        in: path
+        required: true
+        schema: &id001
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /jobs:
+    get:
+      operationId: jobs
+      description: Job history, oldest first with a stable committed cutoff.
+      parameters:
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /jobs/{jobId}:
+    get:
+      operationId: job
+      description: Durable counters; discovery total is unknown. Waiting for I/O means no checkpoint for five seconds, not
+        proof of a kernel hang.
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /jobs/{jobId}/pause:
+    post:
+      operationId: pauseJob
+      description: Request cooperative pause. PAUSED acknowledges that worker handles have reached a safe point.
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: *id001
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+  /jobs/{jobId}/resume:
+    post:
+      operationId: resumeJob
+      description: Validate captured configuration, all selected roots and root identities before requeueing a PAUSED or INTERRUPTED
+        job.
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: *id001
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+  /jobs/{jobId}/cancel:
+    post:
+      operationId: cancelJob
+      description: Cancel wins pause races. Running work acknowledges cancellation at a safe point. Terminal completion cannot
+        be relabeled.
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: *id001
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+  /jobs/{jobId}/errors:
+    get:
+      operationId: jobErrors
+      description: Paged structured errors; committed inventory remains accessible.
+      parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: *id001
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /scans/{scanId}/directories/{locationId}/children:
+    get:
+      operationId: children
+      description: Committed observations from PostgreSQL only. No source reads. Unknown totals and partial coverage are explicit.
+      parameters:
+      - name: scanId
+        in: path
+        required: true
+        schema: *id001
+      - name: locationId
+        in: path
+        required: true
+        schema: *id001
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChildrenPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /observations/{entryId}:
+    get:
+      operationId: observation
+      description: One immutable scan observation with append-only instability evidence; no live file access.
+      parameters:
+      - name: entryId
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '200':
+          description: Stored metadata / durable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
-    session: { type: apiKey, in: cookie, name: JSESSIONID }
+    session:
+      type: apiKey
+      in: cookie
+      name: JSESSIONID
   parameters:
     Csrf:
       name: X-XSRF-TOKEN
       in: header
       required: true
       description: Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly.
-      schema: { type: string }
+      schema:
+        type: string
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly
+        committed rows.
+      schema: &id004
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    Idempotency:
+      name: Idempotency-Key
+      in: header
+      description: Retained at least 24 hours (currently indefinitely). Repeating the same normalized request returns its
+        original response, even at capacity.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
   responses:
     Problem:
       description: Structured error
       content:
         application/problem+json:
-          schema: { $ref: '#/components/schemas/Problem' }
+          schema:
+            $ref: '#/components/schemas/Problem'
   schemas:
     Session:
       type: object
-      required: [authenticated, username]
+      required:
+      - authenticated
+      - username
       properties:
-        authenticated: { type: boolean }
-        username: { type: [string, 'null'] }
+        authenticated:
+          type: boolean
+        username:
+          type:
+          - string
+          - 'null'
     Health:
       type: object
-      required: [status]
+      required:
+      - status
       properties:
-        status: { type: string, enum: [UP, DOWN] }
+        status:
+          type: string
+          enum:
+          - UP
+          - DOWN
     SystemInfo:
       type: object
-      required: [name, version, milestone, platform, sourcePolicy, scanAvailable, configurationRevision]
+      required:
+      - name
+      - version
+      - milestone
+      - platform
+      - sourcePolicy
+      - scanAvailable
+      - configurationRevision
+      - inventoryOnly
       properties:
-        name: { type: string }
-        version: { type: string }
-        milestone: { type: string, const: M0 }
-        platform: { type: string }
-        sourcePolicy: { type: string, const: READ_ONLY }
-        scanAvailable: { type: boolean, const: false }
-        configurationRevision: { type: string, pattern: '^[0-9a-f]{64}$' }
+        name:
+          type: string
+        version:
+          type: string
+        milestone:
+          type: string
+          const: M1
+        platform:
+          type: string
+        sourcePolicy:
+          type: string
+          const: READ_ONLY
+        scanAvailable:
+          type: boolean
+          const: true
+        configurationRevision:
+          type: string
+          pattern: ^[0-9a-f]{64}$
+        inventoryOnly:
+          type: boolean
+          const: true
     SourceList:
       type: object
-      required: [configurationRevision, sources]
+      required:
+      - configurationRevision
+      - sources
       properties:
-        configurationRevision: { type: string }
+        configurationRevision:
+          type: string
         sources:
           type: array
-          items: { $ref: '#/components/schemas/Source' }
+          items:
+            $ref: '#/components/schemas/Source'
     Source:
       type: object
-      required: [id, sourceInstanceId, key, label, containerPath, enabled, crossMounts, status, detail, excludedMountCount]
+      required:
+      - id
+      - sourceInstanceId
+      - key
+      - label
+      - containerPath
+      - enabled
+      - crossMounts
+      - status
+      - detail
+      - excludedMountCount
       properties:
-        id: { type: string, format: uuid }
-        sourceInstanceId: { type: string, format: uuid }
-        key: { type: string }
-        label: { type: string }
-        containerPath: { type: string }
-        enabled: { type: boolean }
-        crossMounts: { type: boolean }
-        status: { type: string }
-        detail: { type: string }
-        excludedMountCount: { type: integer, minimum: 0 }
+        id:
+          type: string
+          format: uuid
+        sourceInstanceId:
+          type: string
+          format: uuid
+        key:
+          type: string
+        label:
+          type: string
+        containerPath:
+          type: string
+        enabled:
+          type: boolean
+        crossMounts:
+          type: boolean
+        status:
+          type: string
+        detail:
+          type: string
+        excludedMountCount:
+          type: integer
+          minimum: 0
     Problem:
       type: object
-      required: [type, title, status, code, detail, correlationId, retriable]
+      required:
+      - type
+      - title
+      - status
+      - code
+      - detail
+      - correlationId
+      - retriable
       properties:
-        type: { type: string }
-        title: { type: string }
-        status: { type: integer }
-        code: { type: string }
-        detail: { type: string }
-        correlationId: { type: string, format: uuid }
-        retriable: { type: boolean }
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        code:
+          type: string
+        detail:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+        retriable:
+          type: boolean
+    ScanRequest:
+      type: object
+      required:
+      - name
+      - sourceIds
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sourceIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items: *id001
+        hashAlgorithm:
+          type: string
+          enum:
+          - SHA-256
+          default: SHA-256
+        includeSignatureCandidates:
+          type: boolean
+          const: false
+          default: false
+        textIndexingEnabled:
+          type: boolean
+          const: false
+          default: false
+      additionalProperties: false
+    ScanCreated:
+      type: object
+      required:
+      - scanId
+      - jobId
+      - inventoryOnly
+      properties:
+        scanId: *id001
+        jobId: *id001
+        inventoryOnly:
+          type: boolean
+          const: true
+    Job:
+      type: object
+      required:
+      - id
+      - scanId
+      - type
+      - phase
+      - state
+      - version
+      - createdAt
+      - updatedAt
+      - startedAt
+      - finishedAt
+      - heartbeatAt
+      - checkpointAt
+      - currentSourceId
+      - currentPath
+      - blockCode
+      - leaseSeconds
+      - heartbeatSeconds
+      - discoveredEntries
+      - discoveredFiles
+      - discoveredDirectories
+      - discoveredBytes
+      - errorCount
+      - skippedEntries
+      - pendingWork
+      - completedWork
+      - totalKnown
+      - waitingForIo
+      properties:
+        id: *id001
+        scanId: *id001
+        type:
+          type: string
+          const: INVENTORY
+        phase:
+          type: string
+          const: INVENTORY
+        state:
+          type: string
+          enum:
+          - QUEUED
+          - RUNNING
+          - PAUSE_REQUESTED
+          - PAUSED
+          - CANCEL_REQUESTED
+          - CANCELLED
+          - INTERRUPTED
+          - COMPLETED
+          - COMPLETED_WITH_ERRORS
+          - FAILED
+        version: &id003
+          type: string
+          pattern: ^[0-9]+$
+        createdAt: &id002
+          type: string
+          format: date-time
+        updatedAt: *id002
+        startedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        finishedAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        heartbeatAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        checkpointAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        currentSourceId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        currentPath:
+          type:
+          - string
+          - 'null'
+        blockCode:
+          type:
+          - string
+          - 'null'
+        leaseSeconds:
+          type: integer
+          const: 60
+        heartbeatSeconds:
+          type: integer
+          const: 10
+        discoveredEntries: *id003
+        discoveredFiles: *id003
+        discoveredDirectories: *id003
+        discoveredBytes: *id003
+        errorCount: *id003
+        skippedEntries: *id003
+        pendingWork: *id003
+        completedWork: *id003
+        totalKnown:
+          type: boolean
+          const: false
+        waitingForIo: &id006
+          type: boolean
+    ScanSource:
+      type: object
+      required:
+      - sourceId
+      - sourceInstanceId
+      - label
+      - rootLocationId
+      - coverage
+      properties:
+        sourceId: *id001
+        sourceInstanceId: *id001
+        label: *id004
+        rootLocationId: *id001
+        coverage:
+          type: string
+          enum: &id005
+          - COMPLETE
+          - PARTIAL
+          - UNAVAILABLE
+          - EXCLUDED_BY_POLICY
+    Scan:
+      type: object
+      required:
+      - id
+      - name
+      - configurationRevision
+      - createdAt
+      - inventoryFrozenAt
+      - inventoryOnly
+      - analysisAvailable
+      - job
+      - sources
+      properties:
+        id: *id001
+        name: *id004
+        configurationRevision: *id004
+        createdAt: *id002
+        inventoryFrozenAt:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        inventoryOnly:
+          type: boolean
+          const: true
+        analysisAvailable:
+          type: boolean
+          const: false
+        job:
+          $ref: '#/components/schemas/Job'
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanSource'
+    Observation:
+      type: object
+      required:
+      - id
+      - scanId
+      - locationId
+      - sourceId
+      - sourceInstanceId
+      - parentLocationId
+      - name
+      - path
+      - relativePathBytesBase64
+      - nameBytesBase64
+      - extension
+      - entryType
+      - sizeBytes
+      - metadataMask
+      - mode
+      - mtimeNanos
+      - ctimeNanos
+      - birthNanos
+      - inode
+      - mountId
+      - deviceMajor
+      - deviceMinor
+      - linkCount
+      - blocks
+      - uid
+      - gid
+      - mtimeSeconds
+      - ctimeSeconds
+      - birthSeconds
+      - filesystemType
+      - symlinkTargetBytesBase64
+      - mtime
+      - ctime
+      - discoveryStatus
+      - directoryCoverage
+      - unstable
+      - observedAt
+      properties:
+        id: *id001
+        scanId: *id001
+        locationId: *id001
+        sourceId: *id001
+        sourceInstanceId: *id001
+        parentLocationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        name: *id004
+        path: *id004
+        relativePathBytesBase64: *id004
+        nameBytesBase64: *id004
+        extension:
+          type:
+          - string
+          - 'null'
+        entryType:
+          type: string
+          enum:
+          - DIRECTORY
+          - REGULAR
+          - SYMLINK
+          - SPECIAL
+          - UNKNOWN
+        sizeBytes:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        metadataMask:
+          type:
+          - integer
+          - 'null'
+        mode:
+          type:
+          - integer
+          - 'null'
+        mtimeNanos:
+          type:
+          - integer
+          - 'null'
+        ctimeNanos:
+          type:
+          - integer
+          - 'null'
+        birthNanos:
+          type:
+          - integer
+          - 'null'
+        inode:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        mountId:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        deviceMajor:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        deviceMinor:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        linkCount:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        blocks:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        uid:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        gid:
+          type:
+          - string
+          - 'null'
+          pattern: ^[0-9]+$
+        mtimeSeconds:
+          type:
+          - string
+          - 'null'
+        ctimeSeconds:
+          type:
+          - string
+          - 'null'
+        birthSeconds:
+          type:
+          - string
+          - 'null'
+        filesystemType:
+          type:
+          - string
+          - 'null'
+        symlinkTargetBytesBase64:
+          type:
+          - string
+          - 'null'
+        mtime:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        ctime:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        discoveryStatus: *id004
+        directoryCoverage:
+          type:
+          - string
+          - 'null'
+          enum: *id005
+        unstable: *id006
+        observedAt: *id002
+    JobError:
+      type: object
+      required:
+      - id
+      - locationId
+      - displayPath
+      - code
+      - detail
+      - createdAt
+      properties:
+        id: *id003
+        locationId: *id001
+        displayPath: *id004
+        code: *id004
+        detail: *id004
+        createdAt: *id002
+    ScanPage:
+      type: object
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Scan'
+        nextCursor:
+          type:
+          - string
+          - 'null'
+    JobPage:
+      type: object
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        nextCursor:
+          type:
+          - string
+          - 'null'
+    ErrorPage:
+      type: object
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobError'
+        nextCursor:
+          type:
+          - string
+          - 'null'
+    ChildrenPage:
+      type: object
+      required:
+      - items
+      - nextCursor
+      - parentLocationId
+      - displayPath
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+        nextCursor:
+          type:
+          - string
+          - 'null'
+        parentLocationId:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        displayPath: *id004

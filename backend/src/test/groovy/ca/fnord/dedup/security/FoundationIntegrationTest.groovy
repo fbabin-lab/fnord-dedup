@@ -18,7 +18,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.junit.jupiter.api.Assertions.*
 
 @Tag('postgres')
-@SpringBootTest
+@SpringBootTest(properties=['fnord.inventory.enabled=false','spring.datasource.hikari.connection-init-sql=SET search_path=public'])
 @AutoConfigureMockMvc
 @TestMethodOrder(MethodOrderer.OrderAnnotation)
 class FoundationIntegrationTest {
@@ -57,7 +57,7 @@ class FoundationIntegrationTest {
     }
 
     @Test @Order(1) void schemaAndAnonymousAccess() {
-        assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
+        assertEquals(2,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM source_configuration',Integer))
         for (String path : ['/api/v1/sources','/api/v1/system/info','/api/v1/scans','/api/v1/observations/anything','/api/v1/exports/anything/download'])
             mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath('$.code').value('AUTHENTICATION_REQUIRED'))
@@ -72,7 +72,7 @@ class FoundationIntegrationTest {
         MockHttpSession session = (MockHttpSession)result.request.getSession(false)
         assertNotNull(session)
         mvc.perform(get('/api/v1/session').session(session)).andExpect(jsonPath('$.authenticated').value(true)).andExpect(jsonPath('$.username').value('operator'))
-        mvc.perform(get('/api/v1/system/info').session(session)).andExpect(status().isOk()).andExpect(jsonPath('$.scanAvailable').value(false))
+        mvc.perform(get('/api/v1/system/info').session(session)).andExpect(status().isOk()).andExpect(jsonPath('$.scanAvailable').value(true))
         mvc.perform(get('/api/v1/sources').session(session)).andExpect(status().isOk()).andExpect(jsonPath('$.sources').isEmpty())
         mvc.perform(post('/api/v1/session/logout').session(session)).andExpect(status().isForbidden())
         mvc.perform(post('/api/v1/session/logout').session(session).with(token())).andExpect(status().isNoContent())
@@ -97,5 +97,21 @@ class FoundationIntegrationTest {
         }
         mvc.perform(post('/api/v1/session/login').with(token()).param('username','operator').param('password',PASSWORD))
             .andExpect(status().isTooManyRequests()).andExpect(jsonPath('$.code').value('LOGIN_RATE_LIMIT'))
+    }
+
+    @Test @Order(5) void inventoryRoutesBindParametersAndReturnStructuredErrors() {
+        for (String path : ['/api/v1/scans?limit=10','/api/v1/jobs?limit=10'])
+            mvc.perform(get(path).with(user('operator'))).andExpect(status().isOk()).andExpect(jsonPath('$.items').isArray())
+        mvc.perform(get('/api/v1/scans?limit=501').with(user('operator'))).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath('$.code').value('INVALID_PAGE_SIZE'))
+        mvc.perform(get('/api/v1/scans/not-an-id').with(user('operator'))).andExpect(status().isBadRequest()).andExpect(jsonPath('$.code').value('INVALID_REQUEST'))
+        String id = UUID.randomUUID().toString()
+        for (String path : ['/api/v1/scans/'+id,'/api/v1/jobs/'+id,'/api/v1/jobs/'+id+'/errors','/api/v1/observations/'+id,'/api/v1/scans/'+id+'/directories/'+id+'/children'])
+            mvc.perform(get(path).with(user('operator'))).andExpect(status().isNotFound())
+        mvc.perform(post('/api/v1/scans').with(user('operator')).contentType('application/json').content('{"name":"Test","sourceIds":[]}'))
+            .andExpect(status().isForbidden())
+        mvc.perform(post('/api/v1/scans').with(user('operator')).with(token()).contentType('application/json').content('{"name":"Test","sourceIds":[]}'))
+            .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath('$.code').value('INVALID_SOURCES'))
+        for (String action : ['pause','resume','cancel'])
+            mvc.perform(post('/api/v1/jobs/'+id+'/'+action).with(user('operator')).with(token())).andExpect(status().isNotFound())
     }
 }

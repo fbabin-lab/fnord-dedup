@@ -6,6 +6,13 @@ import type { components } from './api-schema';
 export type Session = components['schemas']['Session'];
 export type SourceList = components['schemas']['SourceList'];
 export type SystemInfo = components['schemas']['SystemInfo'];
+export type Scan = components['schemas']['Scan'];
+export type Job = components['schemas']['Job'];
+export type Observation = components['schemas']['Observation'];
+export type ChildrenPage = components['schemas']['ChildrenPage'];
+export type ErrorPage = components['schemas']['ErrorPage'];
+export type ScanPage = components['schemas']['ScanPage'];
+export type ScanRequest = components['schemas']['ScanRequest'];
 
 @Injectable({ providedIn: 'root' })
 export class Api {
@@ -35,10 +42,27 @@ export class Api {
   }
   sources(): Promise<SourceList> { return this.get('/api/v1/sources'); }
   info(): Promise<SystemInfo> { return this.get('/api/v1/system/info'); }
+  scans(cursor?: string | null): Promise<ScanPage> { return this.get('/api/v1/scans?limit=20' + cursorQuery(cursor)); }
+  scan(id: string): Promise<Scan> { return this.get(`/api/v1/scans/${encodeURIComponent(id)}`); }
+  async createScan(body: ScanRequest, key: string): Promise<components['schemas']['ScanCreated']> {
+    return firstValueFrom(this.http.post<components['schemas']['ScanCreated']>('/api/v1/scans', body, {headers: {'Idempotency-Key': key}}));
+  }
+  async control(id: string, action: 'pause' | 'resume' | 'cancel'): Promise<Job> {
+    return firstValueFrom(this.http.post<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/${action}`, {}));
+  }
+  children(scanId: string, locationId: string, cursor?: string | null): Promise<ChildrenPage> {
+    return this.get(`/api/v1/scans/${encodeURIComponent(scanId)}/directories/${encodeURIComponent(locationId)}/children?limit=100` + cursorQuery(cursor));
+  }
+  errors(jobId: string, cursor?: string | null): Promise<ErrorPage> { return this.get(`/api/v1/jobs/${encodeURIComponent(jobId)}/errors?limit=20` + cursorQuery(cursor)); }
+  observation(id: string): Promise<Observation> { return this.get(`/api/v1/observations/${encodeURIComponent(id)}`); }
 }
+
+function cursorQuery(cursor?: string | null): string { return cursor ? '&cursor=' + encodeURIComponent(cursor) : ''; }
 
 export function errorMessage(error: unknown): string {
   if (error instanceof HttpErrorResponse) {
+    if (error.error && typeof error.error.detail === 'string' && error.status !== 401 && error.status !== 403)
+      return error.error.detail;
     if (error.status === 429) return 'Too many login attempts. Try again in one minute.';
     if (error.status === 401) return 'The username or password is incorrect, or your session has expired.';
     if (error.status === 403) return 'Your security token expired. Refresh the page and try again.';

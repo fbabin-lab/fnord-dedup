@@ -35,3 +35,20 @@ footer { text-align: center; padding: 20px; color: #69778b; font-size: 12px; }
 .skip-link:focus { top: 10px; }
 :focus-visible { outline: 3px solid #568bbb; outline-offset: 4px; }
 @media(max-width:650px) { main { padding: 30px 16px; } .panel { padding: 22px; } .columns { grid-template-columns: 1fr; gap: 0; } .policy { display: none; } .brand { margin-right: auto; } nav { order: 3; width: 100%; } dl { grid-template-columns: 1fr; gap: 4px; } dd { margin-bottom: 12px; } }
+fieldset { border: 1px solid #dfe6ee; border-radius: 8px; padding: 14px 18px; }
+.source-choice { display: flex; gap: 12px; padding: 10px 0; align-items: center; }
+.source-choice input { width: 18px; height: 18px; }
+.table-scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { padding: 14px 10px; border-bottom: 1px solid #e2e8f0; text-align: left; vertical-align: top; }
+th { color: #56667b; font-weight: 600; }
+td.path { max-width: 500px; word-break: break-word; }
+td.path button { white-space: normal; height: auto; text-align: left; padding: 5px; min-width: 0; }
+.metrics { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; margin: 24px 0; }
+.metrics strong { display: block; font-size: 24px; overflow-wrap: anywhere; }
+.metrics span { display: block; font-size: 12px; color: #56667b; margin-top: 6px; }
+.actions, .source-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.source-row { padding: 8px 0; justify-content: space-between; }
+.inventory-error { border-top: 1px solid #e2e8f0; padding: 14px 0; }
+.inventory-error p { margin: 6px 0; }
+@media(max-width:650px) { .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }

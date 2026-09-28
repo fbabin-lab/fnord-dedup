@@ -60,7 +60,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Cached startup validation. Does not perform filesystem reads. */
+        /** @description Cached startup/job validation. Does not perform filesystem reads. */
         get: operations["sources"];
         put?: never;
         post?: never;
@@ -102,6 +102,177 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Scan history, oldest first with a stable committed cutoff. */
+        get: operations["scans"];
+        put?: never;
+        /** @description Queue whole registered roots. At most ten unfinished jobs and five creations per actor per minute. Only metadata is inventoried in M1. */
+        post: operations["createScan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{scanId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Captured source scope, coverage and durable progress. Completion is inventory-only. */
+        get: operations["scan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Job history, oldest first with a stable committed cutoff. */
+        get: operations["jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{jobId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Durable counters; discovery total is unknown. Waiting for I/O means no checkpoint for five seconds, not proof of a kernel hang. */
+        get: operations["job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{jobId}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Request cooperative pause. PAUSED acknowledges that worker handles have reached a safe point. */
+        post: operations["pauseJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{jobId}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Validate captured configuration, all selected roots and root identities before requeueing a PAUSED or INTERRUPTED job. */
+        post: operations["resumeJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{jobId}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cancel wins pause races. Running work acknowledges cancellation at a safe point. Terminal completion cannot be relabeled. */
+        post: operations["cancelJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{jobId}/errors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Paged structured errors; committed inventory remains accessible. */
+        get: operations["jobErrors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{scanId}/directories/{locationId}/children": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Committed observations from PostgreSQL only. No source reads. Unknown totals and partial coverage are explicit. */
+        get: operations["children"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/observations/{entryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One immutable scan observation with append-only instability evidence; no live file access. */
+        get: operations["observation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -118,13 +289,15 @@ export interface components {
             name: string;
             version: string;
             /** @constant */
-            milestone: "M0";
+            milestone: "M1";
             platform: string;
             /** @constant */
             sourcePolicy: "READ_ONLY";
             /** @constant */
-            scanAvailable: false;
+            scanAvailable: true;
             configurationRevision: string;
+            /** @constant */
+            inventoryOnly: true;
         };
         SourceList: {
             configurationRevision: string;
@@ -154,6 +327,183 @@ export interface components {
             correlationId: string;
             retriable: boolean;
         };
+        ScanRequest: {
+            name: string;
+            sourceIds: string[];
+            /**
+             * @default SHA-256
+             * @enum {string}
+             */
+            hashAlgorithm: "SHA-256";
+            /**
+             * @default false
+             * @constant
+             */
+            includeSignatureCandidates: false;
+            /**
+             * @default false
+             * @constant
+             */
+            textIndexingEnabled: false;
+        };
+        ScanCreated: {
+            /** Format: uuid */
+            scanId: string;
+            /** Format: uuid */
+            jobId: string;
+            /** @constant */
+            inventoryOnly: true;
+        };
+        Job: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            scanId: string;
+            /** @constant */
+            type: "INVENTORY";
+            /** @constant */
+            phase: "INVENTORY";
+            /** @enum {string} */
+            state: "QUEUED" | "RUNNING" | "PAUSE_REQUESTED" | "PAUSED" | "CANCEL_REQUESTED" | "CANCELLED" | "INTERRUPTED" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED";
+            version: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            startedAt: string | null;
+            /** Format: date-time */
+            finishedAt: string | null;
+            /** Format: date-time */
+            heartbeatAt: string | null;
+            /** Format: date-time */
+            checkpointAt: string | null;
+            /** Format: uuid */
+            currentSourceId: string | null;
+            currentPath: string | null;
+            blockCode: string | null;
+            /** @constant */
+            leaseSeconds: 60;
+            /** @constant */
+            heartbeatSeconds: 10;
+            discoveredEntries: string;
+            discoveredFiles: string;
+            discoveredDirectories: string;
+            discoveredBytes: string;
+            errorCount: string;
+            skippedEntries: string;
+            pendingWork: string;
+            completedWork: string;
+            /** @constant */
+            totalKnown: false;
+            waitingForIo: boolean;
+        };
+        ScanSource: {
+            /** Format: uuid */
+            sourceId: string;
+            /** Format: uuid */
+            sourceInstanceId: string;
+            label: string;
+            /** Format: uuid */
+            rootLocationId: string;
+            /** @enum {string} */
+            coverage: "COMPLETE" | "PARTIAL" | "UNAVAILABLE" | "EXCLUDED_BY_POLICY";
+        };
+        Scan: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            configurationRevision: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            inventoryFrozenAt: string | null;
+            /** @constant */
+            inventoryOnly: true;
+            /** @constant */
+            analysisAvailable: false;
+            job: components["schemas"]["Job"];
+            sources: components["schemas"]["ScanSource"][];
+        };
+        Observation: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            scanId: string;
+            /** Format: uuid */
+            locationId: string;
+            /** Format: uuid */
+            sourceId: string;
+            /** Format: uuid */
+            sourceInstanceId: string;
+            /** Format: uuid */
+            parentLocationId: string | null;
+            name: string;
+            path: string;
+            relativePathBytesBase64: string;
+            nameBytesBase64: string;
+            extension: string | null;
+            /** @enum {string} */
+            entryType: "DIRECTORY" | "REGULAR" | "SYMLINK" | "SPECIAL" | "UNKNOWN";
+            sizeBytes: string | null;
+            metadataMask: number | null;
+            mode: number | null;
+            mtimeNanos: number | null;
+            ctimeNanos: number | null;
+            birthNanos: number | null;
+            inode: string | null;
+            mountId: string | null;
+            deviceMajor: string | null;
+            deviceMinor: string | null;
+            linkCount: string | null;
+            blocks: string | null;
+            uid: string | null;
+            gid: string | null;
+            mtimeSeconds: string | null;
+            ctimeSeconds: string | null;
+            birthSeconds: string | null;
+            filesystemType: string | null;
+            symlinkTargetBytesBase64: string | null;
+            /** Format: date-time */
+            mtime: string | null;
+            /** Format: date-time */
+            ctime: string | null;
+            discoveryStatus: string;
+            /** @enum {string|null} */
+            directoryCoverage: "COMPLETE" | "PARTIAL" | "UNAVAILABLE" | "EXCLUDED_BY_POLICY" | null;
+            unstable: boolean;
+            /** Format: date-time */
+            observedAt: string;
+        };
+        JobError: {
+            id: string;
+            /** Format: uuid */
+            locationId: string;
+            displayPath: string;
+            code: string;
+            detail: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        ScanPage: {
+            items: components["schemas"]["Scan"][];
+            nextCursor: string | null;
+        };
+        JobPage: {
+            items: components["schemas"]["Job"][];
+            nextCursor: string | null;
+        };
+        ErrorPage: {
+            items: components["schemas"]["JobError"][];
+            nextCursor: string | null;
+        };
+        ChildrenPage: {
+            items: components["schemas"]["Observation"][];
+            nextCursor: string | null;
+            /** Format: uuid */
+            parentLocationId: string | null;
+            displayPath: string;
+        };
     };
     responses: {
         /** @description Structured error */
@@ -169,6 +519,11 @@ export interface components {
     parameters: {
         /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
         Csrf: string;
+        /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+        Cursor: string;
+        Limit: number;
+        /** @description Retained at least 24 hours (currently indefinitely). Repeating the same normalized request returns its original response, even at capacity. */
+        Idempotency: string;
     };
     requestBodies: never;
     headers: never;
@@ -320,6 +675,351 @@ export interface operations {
                     "application/json": components["schemas"]["Health"];
                 };
             };
+        };
+    };
+    scans: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanPage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    createScan: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+                /** @description Retained at least 24 hours (currently indefinitely). Repeating the same normalized request returns its original response, even at capacity. */
+                "Idempotency-Key"?: components["parameters"]["Idempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScanRequest"];
+            };
+        };
+        responses: {
+            /** @description Queued; not completed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanCreated"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    scan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scanId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Scan"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    jobs: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobPage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    pauseJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    resumeJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    cancelJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    jobErrors: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                jobId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorPage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    children: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                scanId: string;
+                locationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChildrenPage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    observation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored metadata / durable state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Observation"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
         };
     };
 }

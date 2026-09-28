@@ -1,0 +1,10 @@
+fnord:
+  sources:
+    - id: 71b53f30-f68f-45d5-a337-763c5a0e0552
+      source-instance-id: 6842060a-5ab7-4880-b19a-0589174fe877
+      key: archive
+      label: Archive
+      container-path: /sources/archive
+      host-export-prefix: ${FNORD_HOST_EXPORT_ARCHIVE}
+      enabled: true
+      cross-mounts: false

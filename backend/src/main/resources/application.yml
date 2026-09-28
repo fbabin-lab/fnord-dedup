@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: fnord-dedup
+  config:
+    import: optional:configtree:/run/secrets/
+  datasource:
+    url: ${FNORD_DB_URL:jdbc:postgresql://postgres:5432/fnord}
+    username: fnord
+    hikari:
+      maximum-pool-size: 5
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 1MB
+      max-request-size: 1MB
+server:
+  port: 8080
+  shutdown: graceful
+  forward-headers-strategy: none
+  servlet:
+    session:
+      timeout: 30m
+      cookie:
+        http-only: true
+        same-site: strict
+        secure: ${FNORD_SECURE_COOKIES:false}
+spring.lifecycle.timeout-per-shutdown-phase: 25s
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+logging:
+  structured:
+    format:
+      console: ecs
+fnord:
+  security:
+    username: operator
+    secure-cookies: ${FNORD_SECURE_COOKIES:false}
+  sources: []
+  artifact-directory: /var/lib/fnord/artifacts

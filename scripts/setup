@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Create first-run credentials only. Never examines or mutates source directories."""
+import getpass
+import json
+import os
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+
+repo = Path(__file__).resolve().parent.parent
+secret_dir = repo / 'deploy' / 'secrets'
+names = ['database-password', 'operator-password-hash']
+if any((secret_dir / name).exists() for name in names):
+    sys.exit('Credentials already exist. Setup will not overwrite them; see docs/OPERATIONS.md for rotation.')
+password = getpass.getpass('Choose an operator password (14 to 72 UTF-8 bytes): ')
+if not 14 <= len(password.encode()) <= 72 or len(password.strip()) < 14 or '\n' in password or '\r' in password:
+    sys.exit('Password must have 14 to 72 UTF-8 bytes and at least 14 non-padding characters.')
+if password != getpass.getpass('Repeat password: '):
+    sys.exit('Passwords do not match.')
+subprocess.run([str(repo / 'scripts/fnord'), 'build', 'backend'], check=True)
+config = json.loads(subprocess.check_output([str(repo / 'scripts/fnord'), 'config', '--format', 'json']))
+image = config['services']['backend']['image']
+result = subprocess.run(['docker', 'run', '--rm', '-i', '--network', 'none', '--read-only',
+    '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--tmpfs', '/tmp:size=128m,mode=1777',
+    image, '--hash-password-stdin'], input=password.encode(), stdout=subprocess.PIPE, check=True)
+hashed = result.stdout.decode().strip()
+if not hashed.startswith('$2a$12$') or len(hashed) != 60:
+    sys.exit('Password hashing failed; no credentials were saved.')
+secret_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+secret_dir.chmod(0o700)
+for name, value in zip(names, [secrets.token_urlsafe(48), hashed]):
+    # Readable inside each container; the host directory itself is private (0700).
+    fd = os.open(secret_dir / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o444)
+    with os.fdopen(fd, 'w') as f:
+        f.write(value)
+    (secret_dir / name).chmod(0o444)
+print('Credentials created. Run ./scripts/fnord up -d --build --wait, then open http://127.0.0.1:8088.')

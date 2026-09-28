@@ -1,0 +1,15 @@
+.env
+deploy/.env
+deploy/application.yml
+deploy/compose.sources.yaml
+deploy/secrets/
+**/build/
+**/.gradle/
+**/node_modules/
+**/dist/
+**/.angular/
+**/test-results/
+**/playwright-report/
+*.log
+.idea/
+*.iml

@@ -1,0 +1,159 @@
+openapi: 3.1.0
+info:
+  title: Fnord Dedup foundation API
+  version: 0.1.0-M0
+  description: M0 implemented routes only. No scan, content, filesystem mutation or arbitrary-path endpoints.
+servers:
+  - url: /api/v1
+security:
+  - session: []
+paths:
+  /session:
+    get:
+      operationId: session
+      security: []
+      description: Returns session state and issues a readable XSRF-TOKEN cookie. Call again after login/logout.
+      responses:
+        '200':
+          description: Session state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Session' }
+  /session/login:
+    post:
+      operationId: login
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username: { type: string }
+                password: { type: string, format: password }
+      responses:
+        '204': { description: Authenticated; rotated HttpOnly session cookie }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /session/logout:
+    post:
+      operationId: logout
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+      responses:
+        '204': { description: Session invalidated }
+        '403': { $ref: '#/components/responses/Problem' }
+  /sources:
+    get:
+      operationId: sources
+      description: Cached startup validation. Does not perform filesystem reads.
+      responses:
+        '200':
+          description: Registered sources
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SourceList' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /system/info:
+    get:
+      operationId: systemInfo
+      responses:
+        '200':
+          description: Implemented capabilities
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SystemInfo' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /system/health:
+    get:
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: Application and database ready; source availability is independent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Database unavailable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+components:
+  securitySchemes:
+    session: { type: apiKey, in: cookie, name: JSESSIONID }
+  parameters:
+    Csrf:
+      name: X-XSRF-TOKEN
+      in: header
+      required: true
+      description: Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly.
+      schema: { type: string }
+  responses:
+    Problem:
+      description: Structured error
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Session:
+      type: object
+      required: [authenticated, username]
+      properties:
+        authenticated: { type: boolean }
+        username: { type: [string, 'null'] }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [UP, DOWN] }
+    SystemInfo:
+      type: object
+      required: [name, version, milestone, platform, sourcePolicy, scanAvailable, configurationRevision]
+      properties:
+        name: { type: string }
+        version: { type: string }
+        milestone: { type: string, const: M0 }
+        platform: { type: string }
+        sourcePolicy: { type: string, const: READ_ONLY }
+        scanAvailable: { type: boolean, const: false }
+        configurationRevision: { type: string, pattern: '^[0-9a-f]{64}$' }
+    SourceList:
+      type: object
+      required: [configurationRevision, sources]
+      properties:
+        configurationRevision: { type: string }
+        sources:
+          type: array
+          items: { $ref: '#/components/schemas/Source' }
+    Source:
+      type: object
+      required: [id, sourceInstanceId, key, label, containerPath, enabled, crossMounts, status, detail, excludedMountCount]
+      properties:
+        id: { type: string, format: uuid }
+        sourceInstanceId: { type: string, format: uuid }
+        key: { type: string }
+        label: { type: string }
+        containerPath: { type: string }
+        enabled: { type: boolean }
+        crossMounts: { type: boolean }
+        status: { type: string }
+        detail: { type: string }
+        excludedMountCount: { type: integer, minimum: 0 }
+    Problem:
+      type: object
+      required: [type, title, status, code, detail, correlationId, retriable]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        correlationId: { type: string, format: uuid }
+        retriable: { type: boolean }

@@ -18,8 +18,9 @@ class SourceRegistry {
     private final ReadOnlyFileAccess access
     private final JdbcTemplate jdbc
     private final ObjectMapper mapper
-    private List<SourceView> views = List.of()
+    private volatile List<SourceView> views = List.of()
     private String revision
+    private volatile Map<UUID, FileMetadata> rootIdentities = Map.of()
 
     SourceRegistry(SourceProperties properties, ReadOnlyFileAccess access, JdbcTemplate jdbc, ObjectMapper mapper) {
         this.properties = properties; this.access = access; this.jdbc = jdbc; this.mapper = mapper
@@ -31,6 +32,11 @@ class SourceRegistry {
         String document = mapper.writeValueAsString([schemaVersion:1, sources:properties.sources])
         revision = HexFormat.of().formatHex(MessageDigest.getInstance('SHA-256').digest(document.getBytes(StandardCharsets.UTF_8)))
         jdbc.update('INSERT INTO source_configuration(revision, schema_version, document) VALUES (?, 1, ?::jsonb) ON CONFLICT DO NOTHING', revision, document)
+        refresh()
+    }
+
+    /** Explicit job/start/resume validation only; GET endpoints use the cached view. */
+    synchronized void refresh() {
         List<SourceView> found = new ArrayList<>()
         Map<UUID, FileMetadata> identities = new LinkedHashMap<>()
         Set<UUID> overlapping = new HashSet<>()
@@ -72,10 +78,24 @@ class SourceRegistry {
         for (int i = 0; i < found.size(); i++) if (overlapping.contains(found.get(i).id))
             found.set(i, view(properties.sources.get(i), 'SOURCE_OVERLAP', 'This source overlaps or aliases another enabled source.', 0))
         views = List.copyOf(found)
+        rootIdentities = Map.copyOf(identities)
     }
 
     List<SourceView> list() { views }
     String getRevision() { revision }
+    FileMetadata identity(UUID id) { rootIdentities.get(id) }
+    SourceDefinition definition(UUID id) {
+        SourceDefinition s = properties.sources.find { SourceDefinition candidate -> candidate.id == id }
+        if (s == null) return null
+        new SourceDefinition(id:s.id, sourceInstanceId:s.sourceInstanceId, key:s.key, label:s.label,
+            containerPath:s.containerPath, hostExportPrefix:s.hostExportPrefix, enabled:s.enabled, crossMounts:s.crossMounts)
+    }
+
+    ReadOnlyFileAccess.Root openValidated(SourceDefinition source) {
+        ReadOnlyFileAccess.Root root = access.openRoot(source)
+        try { rejectApplicationAliases(source, root.identity(), MountTable.current()); return root }
+        catch (Throwable t) { root.close(); throw t }
+    }
 
     private void rejectApplicationAliases(SourceDefinition source, FileMetadata identity, MountTable table) {
         NativeLinux linux = new NativeLinux()

@@ -15,7 +15,7 @@ import { Api, errorMessage } from './api';
       <a class="brand" routerLink="/" aria-label="Fnord Dedup home"><span class="mark" aria-hidden="true">F</span><span>Fnord <strong>Dedup</strong></span></a>
       <span class="policy">Read-only by design</span>
       @if (api.session()?.authenticated) {
-        <nav aria-label="Main navigation"><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">Overview</a><a routerLink="/sources" routerLinkActive="active">Sources</a></nav>
+        <nav aria-label="Main navigation"><a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{exact:true}">Overview</a><a routerLink="/scans" routerLinkActive="active">Scans</a><a routerLink="/sources" routerLinkActive="active">Sources</a></nav>
         <button mat-button (click)="logout()" [disabled]="busy()">Sign out</button>
       }
     </header>
@@ -37,7 +37,7 @@ import { Api, errorMessage } from './api';
         </section>
       } @else { <router-outlet /> }
     </main>
-    <footer>Fnord Dedup · M0 foundation · Identification and review only</footer>
+    <footer>Fnord Dedup · M1 inventory · Identification and review only</footer>
   `
 })
 export class App implements OnInit {

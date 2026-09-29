@@ -31,6 +31,7 @@ class HashPipeline {
                     WHERE e.scan_id=? AND e.sequence>? AND '''+ELIGIBLE+' ORDER BY e.sequence LIMIT 500',c.scanId,Long.parseLong(p.after.toString()))
                 for (Map row : rows) addHash(c.jobId,row,false,['DUPLICATE_SIZE'])
                 if (rows.isEmpty()) {
+                    store.jdbc.update('UPDATE scan SET candidates_frozen_at=clock_timestamp() WHERE id=?',c.scanId)
                     store.jdbc.update("UPDATE job SET phase='HASHING' WHERE id=?",c.jobId)
                     store.complete(c,null,null,'CANDIDATES_FROZEN')
                 } else save(c,[stage:'ENTRIES',after:rows.getLast().sequence.toString()])
@@ -43,6 +44,7 @@ class HashPipeline {
         if (added > 0) store.jdbc.update('UPDATE job SET pending_work=pending_work+1,candidate_files=candidate_files+1,candidate_bytes=candidate_bytes+? WHERE id=?',entry.size_bytes,jobId)
     }
     void save(WorkClaim c, Map payload) {
+        store.jdbc.update('UPDATE scan SET query_revision=query_revision+1 WHERE id=?',c.scanId)
         store.jdbc.update('UPDATE work_item SET payload=?::jsonb WHERE id=?',store.json(payload),c.id)
         store.checkpoint(c)
     }
@@ -149,6 +151,7 @@ class HashPipeline {
         store.tx.execute { status ->
             store.fence(c)
             store.one('SELECT id FROM scan WHERE id=? FOR UPDATE',c.scanId)
+            store.jdbc.update('UPDATE scan SET query_revision=query_revision+1 WHERE id=?',c.scanId)
             Map reading = store.one("SELECT * FROM hash_attempt WHERE id=? AND work_id=? AND lease_token=? AND outcome='READING' FOR UPDATE",attempt,c.id,c.token)
             if (reading == null) throw new LeaseLost()
             Map old = store.one('SELECT h.*,a.digest FROM accepted_hash h JOIN hash_attempt a ON a.id=h.attempt_id WHERE h.entry_id=?',c.entryId)

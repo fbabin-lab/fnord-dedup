@@ -41,7 +41,7 @@ class InventoryService {
                 return store.parse((String)previous.response)
             }
             if (store.jdbc.queryForObject("SELECT count(*) FROM job WHERE state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED')",Long) >= 10L ||
-                store.jdbc.queryForObject("SELECT count(*) FROM idempotency_record WHERE actor=? AND created_at>clock_timestamp()-interval '1 minute'",Long,actor) >= 5L)
+                store.jdbc.queryForObject("SELECT count(*) FROM idempotency_record WHERE actor=? AND endpoint IN ('/scans','/hash-jobs') AND created_at>clock_timestamp()-interval '1 minute'",Long,actor) >= 5L)
                 throw new JobProblem(429,'SCAN_CAPACITY','The scan queue or creation rate limit has been reached. Finish or cancel existing work, or retry later.')
             List<SourceDefinition> definitions = new ArrayList<>()
             for (UUID id : selected) {
@@ -207,7 +207,7 @@ class InventoryService {
         if (row == null) throw new JobProblem(404,'OBSERVATION_NOT_FOUND','The observation does not exist.')
         observationRow(row) + ([hash:HashService.evidence(store,id)] as Map<String,Object>)
     }
-    private static Map<String,Object> observationRow(Map row) {
+    static Map<String,Object> observationRow(Map row) {
         [id:row.id,scanId:row.scan_id,locationId:row.location_id,parentLocationId:row.parent_id,sourceId:row.source_id,sourceInstanceId:row.source_instance_id,
          name:row.display_name,path:row.display_path,relativePathBytesBase64:Base64.encoder.encodeToString((byte[])row.relative_path_bytes),
          nameBytesBase64:Base64.encoder.encodeToString((byte[])row.name_bytes),extension:row.extension,entryType:row.entry_type,sizeBytes:row.size_bytes?.toString(),

@@ -26,7 +26,7 @@ class FoundationController {
 
     @GetMapping('/api/v1/system/info')
     Map<String,Object> info() {
-        [name:'Fnord Dedup', version:'0.3.0-M2', milestone:'M2', platform:'Linux/amd64',
+        [name:'Fnord Dedup', version:'0.4.0-M3', milestone:'M3', platform:'Linux/amd64',
          sourcePolicy:'READ_ONLY', scanAvailable:true, inventoryOnly:false, configurationRevision:sources.revision] as Map<String,Object>
     }
     @GetMapping('/api/v1/system/health')

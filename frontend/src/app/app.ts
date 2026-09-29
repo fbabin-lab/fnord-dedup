@@ -37,7 +37,7 @@ import { Api, errorMessage } from './api';
         </section>
       } @else { <router-outlet /> }
     </main>
-    <footer>Fnord Dedup · M2 duplicate analysis · Identification and review only</footer>
+    <footer>Fnord Dedup · M3 explorer and notes · Identification and review only</footer>
   `
 })
 export class App implements OnInit {

@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
-  title: Fnord Dedup scan and evidence API
-  version: 0.3.0-M2
+  title: Fnord Dedup explorer and evidence API
+  version: 0.4.0-M3
   description: Durable inventory, repeated-size SHA-256 hashing and immutable duplicate analysis. Unique-size hashing requires
-    an explicit manual request. No source mutations, raw downloads or arbitrary-path inputs.
+    an explicit manual request. No source mutations, raw downloads or arbitrary-path inputs. Stored metadata search, location
+    annotations and frozen bulk review.
 servers:
 - url: /api/v1
 security:
@@ -601,6 +602,376 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
+  /scans/{id}/files/search:
+    post:
+      operationId: searchFiles
+      description: Database-only AND filters. Text contains/exact compares literal UTF-8 bytes, case-sensitive; % and _ are
+        data. Raw base64 supports non-UTF-8 names. Sorts use raw bytes, exact integers/nanoseconds, UUID tiebreaker and nulls
+        last. Cursors bind filters, committed entry cutoff and evidence/query/annotation revisions; changes return 409 CURSOR_STALE.
+        Future signature/content filters return 422.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: &id003
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchQuery'
+  /scans/{scanId}/directories/{locationId}:
+    get:
+      operationId: directory
+      description: Saved directory context and at most 256 ancestor breadcrumbs; never probes sources.
+      parameters:
+      - name: scanId
+        in: path
+        required: true
+        schema: *id003
+      - name: locationId
+        in: path
+        required: true
+        schema: *id003
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Directory'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /locations/{id}/annotation:
+    get:
+      operationId: annotation
+      description: Location notes relative to the requested observation, or most recently inventoried observation. Default
+        version 0. File changes preserve notes and set needsReview.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+      - name: observationId
+        in: query
+        schema: *id003
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Annotation'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: updateAnnotation
+      description: Expected-version optimistic concurrency; 409 preserves the previous value. Saving explicitly reaffirms
+        the selected observation as the note baseline. Plain-text memo max 20,000 Unicode code points; at most 100 manual
+        tags. Audited.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Annotation'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnotationUpdate'
+  /locations/{id}/history:
+    get:
+      operationId: locationHistory
+      description: Stored observations across scans in sequence order. History is never duplicate-copy evidence.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+      - &id004
+        $ref: '#/components/parameters/Cursor'
+      - &id005
+        $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /tags:
+    get:
+      operationId: tags
+      description: Bounded catalog; literal normalized-label search. Labels trim Unicode whitespace, compare NFKC then Locale.ROOT
+        lowercase, and preserve entered display form. This never normalizes filenames.
+      parameters:
+      - name: query
+        in: query
+        schema: &id017
+          type: string
+      - *id004
+      - *id005
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+    post:
+      operationId: createTag
+      description: Creates a reusable manual tag; normalized-label duplicates return 409.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagCreate'
+  /tags/{id}:
+    patch:
+      operationId: renameTag
+      description: Optimistic catalog rename. Existing association labels update; captured selections become needsReview.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagUpdate'
+  /scans/{id}/selections:
+    post:
+      operationId: freezeSelection
+      description: "Atomically freezes all matching or explicit IDs in the captured view. 1\u2013500 rows; overflow is rejected\
+        \ without truncation. Captures annotation versions/snapshots and accepted attempt IDs. Actor-bound, expires in 24\
+        \ hours. New inventory rows never extend it."
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Selection'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectionRequest'
+  /selections/{id}:
+    get:
+      operationId: selection
+      description: Frozen count/bytes/query and paged captured members, with current state and capturedAnnotation. Member
+        annotation/tag/evidence or analysis changes set needsReview. Does not mutate captured targets.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id003
+      - *id004
+      - *id005
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelectionDetail'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /annotation-batches:
+    post:
+      operationId: applyAnnotationBatch
+      description: Atomic, audited, single-use frozen bulk tagging/review-state edit. Stale members or expired selection return
+        409 with zero updates. New rows alone do not block a captured batch. Existing memo baselines are preserved. Idempotency-Key
+        replays the original response.
+      parameters:
+      - $ref: '#/components/parameters/Idempotency'
+      - $ref: '#/components/parameters/Csrf'
+      responses:
+        '200':
+          description: Stored application data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchResult'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AnnotationBatch'
 components:
   securitySchemes:
     session:
@@ -620,7 +991,7 @@ components:
       in: query
       description: Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly
         committed rows.
-      schema: &id006
+      schema: &id009
         type: string
     Limit:
       name: limit
@@ -687,7 +1058,7 @@ components:
           type: string
         milestone:
           type: string
-          const: M2
+          const: M3
         platform:
           type: string
         sourcePolicy:
@@ -884,13 +1255,13 @@ components:
           - COMPLETED
           - COMPLETED_WITH_ERRORS
           - FAILED
-        version: &id004
+        version: &id007
           type: string
           pattern: ^[0-9]+$
-        createdAt: &id003
+        createdAt: &id006
           type: string
           format: date-time
-        updatedAt: *id003
+        updatedAt: *id006
         startedAt:
           type:
           - string
@@ -930,26 +1301,26 @@ components:
         heartbeatSeconds:
           type: integer
           const: 10
-        discoveredEntries: *id004
-        discoveredFiles: *id004
-        discoveredDirectories: *id004
-        discoveredBytes: *id004
-        errorCount: *id004
-        skippedEntries: *id004
-        pendingWork: *id004
-        completedWork: *id004
-        totalKnown: &id007
+        discoveredEntries: *id007
+        discoveredFiles: *id007
+        discoveredDirectories: *id007
+        discoveredBytes: *id007
+        errorCount: *id007
+        skippedEntries: *id007
+        pendingWork: *id007
+        completedWork: *id007
+        totalKnown: &id010
           type: boolean
-        waitingForIo: &id009
+        waitingForIo: &id012
           type: boolean
-        candidateFiles: &id005
+        candidateFiles: &id008
           type: string
           pattern: ^[0-9]+$
-        candidateBytes: *id005
-        hashedFiles: *id005
-        reusedFiles: *id005
-        physicalBytesRead: *id005
-        usefulBytesHashed: *id005
+        candidateBytes: *id008
+        hashedFiles: *id008
+        reusedFiles: *id008
+        physicalBytesRead: *id008
+        usefulBytesHashed: *id008
     ScanSource:
       type: object
       required:
@@ -961,11 +1332,11 @@ components:
       properties:
         sourceId: *id001
         sourceInstanceId: *id001
-        label: *id006
+        label: *id009
         rootLocationId: *id001
         coverage:
           type: string
-          enum: &id008
+          enum: &id011
           - COMPLETE
           - PARTIAL
           - UNAVAILABLE
@@ -988,16 +1359,16 @@ components:
       - activeHashJobs
       properties:
         id: *id001
-        name: *id006
-        configurationRevision: *id006
-        createdAt: *id003
+        name: *id009
+        configurationRevision: *id009
+        createdAt: *id006
         inventoryFrozenAt:
           type:
           - string
           - 'null'
           format: date-time
-        inventoryOnly: *id007
-        analysisAvailable: *id007
+        inventoryOnly: *id010
+        analysisAvailable: *id010
         job:
           $ref: '#/components/schemas/Job'
         sources:
@@ -1008,7 +1379,7 @@ components:
           anyOf:
           - *id002
           - type: 'null'
-        evidenceRevision: *id005
+        evidenceRevision: *id008
         latestJob:
           $ref: '#/components/schemas/Job'
         activeHashJobs:
@@ -1067,10 +1438,10 @@ components:
           - string
           - 'null'
           format: uuid
-        name: *id006
-        path: *id006
-        relativePathBytesBase64: *id006
-        nameBytesBase64: *id006
+        name: *id009
+        path: *id009
+        relativePathBytesBase64: *id009
+        nameBytesBase64: *id009
         extension:
           type:
           - string
@@ -1178,14 +1549,14 @@ components:
           - string
           - 'null'
           format: date-time
-        discoveryStatus: *id006
+        discoveryStatus: *id009
         directoryCoverage:
           type:
           - string
           - 'null'
-          enum: *id008
-        unstable: *id009
-        observedAt: *id003
+          enum: *id011
+        unstable: *id012
+        observedAt: *id006
         hash:
           $ref: '#/components/schemas/HashEvidence'
     JobError:
@@ -1198,12 +1569,12 @@ components:
       - detail
       - createdAt
       properties:
-        id: *id004
+        id: *id007
         locationId: *id001
-        displayPath: *id006
-        code: *id006
-        detail: *id006
-        createdAt: *id003
+        displayPath: *id009
+        code: *id009
+        detail: *id009
+        createdAt: *id006
     ScanPage:
       type: object
       required:
@@ -1267,7 +1638,7 @@ components:
           - string
           - 'null'
           format: uuid
-        displayPath: *id006
+        displayPath: *id009
     HashAttempt:
       type: object
       required:
@@ -1292,17 +1663,17 @@ components:
           const: SHA-256
         digest:
           anyOf:
-          - &id012
+          - &id015
             type: string
             pattern: ^[0-9a-f]{64}$
           - type: 'null'
-        bytesRead: *id005
-        startedAt: &id010
+        bytesRead: *id008
+        startedAt: &id013
           type: string
           format: date-time
         completedAt:
           anyOf:
-          - *id010
+          - *id013
           - type: 'null'
         reasons:
           type: array
@@ -1323,12 +1694,12 @@ components:
           - CONFLICT
         errorCode:
           anyOf:
-          - &id011
+          - &id014
             type: string
           - type: 'null'
         errorDetail:
           anyOf:
-          - *id011
+          - *id014
           - type: 'null'
         preFingerprint:
           anyOf:
@@ -1359,7 +1730,7 @@ components:
           - FAILED
           - NOT_REQUESTED_UNIQUE_SIZE
           - NOT_REQUESTED
-        pending: *id007
+        pending: *id010
         accepted:
           anyOf:
           - $ref: '#/components/schemas/HashAttempt'
@@ -1370,13 +1741,12 @@ components:
           - type: 'null'
         invalidationCode:
           anyOf:
-          - *id011
+          - *id014
           - type: 'null'
     HashRequest:
       type: object
       required:
       - scanId
-      - observationIds
       properties:
         scanId: *id002
         observationIds:
@@ -1388,7 +1758,17 @@ components:
         forceRehash:
           type: boolean
           default: false
+        selectionId:
+          type: string
+          format: uuid
+          description: Actor-owned unexpired frozen selection. Supply exactly one of observationIds or selectionId. Stale
+            selection returns 409.
       additionalProperties: false
+      oneOf:
+      - required:
+        - observationIds
+      - required:
+        - selectionId
     HashCreated:
       type: object
       required:
@@ -1409,7 +1789,7 @@ components:
             $ref: '#/components/schemas/HashAttempt'
         nextCursor:
           anyOf:
-          - *id011
+          - *id014
           - type: 'null'
     DuplicateGroup:
       type: object
@@ -1433,15 +1813,15 @@ components:
         id: *id002
         analysisId: *id002
         scanId: *id002
-        sizeBytes: *id005
+        sizeBytes: *id008
         algorithm:
           type: string
           const: SHA-256
-        digest: *id012
-        pathCount: *id005
+        digest: *id015
+        pathCount: *id008
         objectCount:
           anyOf:
-          - *id005
+          - *id008
           - type: 'null'
         identityStatus:
           type: string
@@ -1458,14 +1838,14 @@ components:
         sourceIds:
           type: array
           items: *id002
-        pathLogicalBytes: *id005
+        pathLogicalBytes: *id008
         independentObjectLogicalBytes:
           anyOf:
-          - *id005
+          - *id008
           - type: 'null'
         maximumDuplicateCopyLogicalBytes:
           anyOf:
-          - *id005
+          - *id008
           - type: 'null'
         physicalSavingsBytes:
           type: 'null'
@@ -1482,7 +1862,7 @@ components:
           anyOf:
           - *id002
           - type: 'null'
-        evidenceRevision: *id005
+        evidenceRevision: *id008
         status:
           type: string
           enum:
@@ -1495,7 +1875,7 @@ components:
             $ref: '#/components/schemas/DuplicateGroup'
         nextCursor:
           anyOf:
-          - *id011
+          - *id014
           - type: 'null'
     GroupDetail:
       type: object
@@ -1520,5 +1900,423 @@ components:
                 $ref: '#/components/schemas/HashAttempt'
         nextCursor:
           anyOf:
-          - *id011
+          - *id014
           - type: 'null'
+    Tag:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - label
+      - version
+      properties:
+        id: *id003
+        label:
+          type: string
+          minLength: 1
+          maxLength: 64
+        version: &id016
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+    TagPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        nextCursor: &id018
+          type:
+          - string
+          - 'null'
+    ReviewState:
+      type: string
+      enum:
+      - UNREVIEWED
+      - REVIEWED
+      - KEEP
+      - REMOVAL_REVIEW
+    Annotation:
+      type: object
+      additionalProperties: false
+      required:
+      - locationId
+      - observationId
+      - version
+      - memo
+      - reviewState
+      - tags
+      - needsReview
+      - baselineObservationId
+      - updatedAt
+      - updatedBy
+      properties:
+        locationId: *id003
+        observationId: *id003
+        version: *id016
+        memo: *id017
+        reviewState:
+          $ref: '#/components/schemas/ReviewState'
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+          maxItems: 100
+        needsReview: &id019
+          type: boolean
+        baselineObservationId: &id023
+          type:
+          - string
+          - 'null'
+          format: uuid
+        updatedAt: &id021
+          type:
+          - string
+          - 'null'
+          format: date-time
+        updatedBy: *id018
+    AnnotationUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - observationId
+      - expectedVersion
+      - memo
+      - tagIds
+      - reviewState
+      properties:
+        observationId: *id003
+        expectedVersion: *id016
+        memo:
+          type: string
+          maxLength: 20000
+        tagIds:
+          type: array
+          items: *id003
+          maxItems: 100
+        reviewState:
+          $ref: '#/components/schemas/ReviewState'
+    SearchFilters:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        nameContains:
+          type: string
+          maxLength: 4096
+        pathContains:
+          type: string
+          maxLength: 4096
+        nameExact:
+          type: string
+          maxLength: 4096
+        pathExact:
+          type: string
+          maxLength: 4096
+        extension:
+          type: string
+          maxLength: 4096
+        memoContains:
+          type: string
+          maxLength: 4096
+        sourceId: *id003
+        subtreeLocationId: *id003
+        parentLocationId: *id003
+        duplicateGroupId: *id003
+        minBytes: *id016
+        maxBytes: *id016
+        mtimeFrom:
+          type: string
+          format: date-time
+          description: UTC ISO instant ending in Z. Lower inclusive, upper exclusive; nanoseconds retained.
+        mtimeTo:
+          type: string
+          format: date-time
+          description: UTC ISO instant ending in Z. Lower inclusive, upper exclusive; nanoseconds retained.
+        nameBytesBase64:
+          type: string
+          contentEncoding: base64
+        pathBytesBase64:
+          type: string
+          contentEncoding: base64
+        entryType:
+          type: string
+          enum:
+          - REGULAR
+          - DIRECTORY
+          - SYMLINK
+          - SPECIAL
+          - UNKNOWN
+        checksum:
+          type: string
+          pattern: ^[0-9a-fA-F]{64}$
+        checksumPrefix:
+          type: string
+          pattern: ^[0-9a-fA-F]{1,64}$
+        hashStatus: &id020
+          type: string
+          enum:
+          - ACCEPTED
+          - PENDING
+          - FAILED
+          - STALE
+          - INELIGIBLE
+          - NOT_REQUESTED
+          - NOT_REQUESTED_UNIQUE_SIZE
+        duplicateState: &id022
+          type: string
+          enum:
+          - DUPLICATE
+          - STALE
+          - NOT_GROUPED
+        tagIds:
+          type: array
+          items: *id003
+          maxItems: 100
+        tagMode:
+          type: string
+          enum:
+          - ANY
+          - ALL
+          description: 'Server default: ANY.'
+        reviewState:
+          $ref: '#/components/schemas/ReviewState'
+        hasError: *id019
+        stale: *id019
+        annotationsNeedReview: *id019
+    SearchQuery:
+      type: object
+      additionalProperties: false
+      required: []
+      properties:
+        filters:
+          $ref: '#/components/schemas/SearchFilters'
+        sort:
+          type: string
+          enum:
+          - name
+          - path
+          - size
+          - mtime
+          - checksumTime
+          description: 'Server default: path.'
+        direction:
+          type: string
+          enum:
+          - ASC
+          - DESC
+          description: 'Server default: ASC.'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 500
+          description: 'Server default: 100.'
+        cursor: *id018
+    SearchEntry:
+      allOf:
+      - $ref: '#/components/schemas/Observation'
+      - type: object
+        required:
+        - hashStatus
+        - checksum
+        - checksumCompletedAt
+        - duplicateState
+        - duplicateGroupId
+        - stale
+        - hasError
+        - annotation
+        properties:
+          hashStatus: *id020
+          checksum: *id018
+          checksumCompletedAt: *id021
+          duplicateState: *id022
+          duplicateGroupId: *id023
+          stale: *id019
+          hasError: *id019
+          annotation:
+            $ref: '#/components/schemas/Annotation'
+    SearchPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      - viewToken
+      - evidenceRevision
+      - annotationRevision
+      - analysisId
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchEntry'
+        nextCursor: *id018
+        viewToken: *id017
+        evidenceRevision: *id016
+        annotationRevision: *id016
+        analysisId: *id023
+    HistoryPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            allOf:
+            - $ref: '#/components/schemas/Observation'
+            - type: object
+              required:
+              - annotation
+              - hashStatus
+              properties:
+                annotation:
+                  $ref: '#/components/schemas/Annotation'
+                hashStatus: *id020
+        nextCursor: *id018
+    Directory:
+      type: object
+      additionalProperties: false
+      required:
+      - locationId
+      - path
+      - coverage
+      - breadcrumbs
+      properties:
+        locationId: *id003
+        path: *id017
+        coverage: *id018
+        breadcrumbs:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - locationId
+            - name
+            - path
+            properties:
+              locationId: *id003
+              name: *id017
+              path: *id017
+    SelectionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - query
+      - viewToken
+      properties:
+        query:
+          $ref: '#/components/schemas/SearchQuery'
+        viewToken: *id017
+        observationIds:
+          type: array
+          items: *id003
+          maxItems: 500
+    Selection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - scanId
+      - analysisId
+      - count
+      - totalBytes
+      - createdAt
+      - expiresAt
+      - expired
+      - appliedAt
+      - query
+      - unknownSizes
+      properties:
+        id: *id003
+        scanId: *id003
+        analysisId: *id023
+        count: *id016
+        totalBytes: *id016
+        createdAt: *id021
+        expiresAt: *id021
+        expired: *id019
+        appliedAt: *id021
+        query:
+          $ref: '#/components/schemas/SearchQuery'
+        unknownSizes:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+          description: Members lacking size. totalBytes sums known sizes only.
+    SelectionDetail:
+      allOf:
+      - $ref: '#/components/schemas/Selection'
+      - type: object
+        required:
+        - needsReview
+        - items
+        - nextCursor
+        properties:
+          needsReview: *id019
+          items:
+            type: array
+            items:
+              allOf:
+              - $ref: '#/components/schemas/SearchEntry'
+              - type: object
+                required:
+                - capturedAnnotation
+                properties:
+                  capturedAnnotation:
+                    $ref: '#/components/schemas/Annotation'
+          nextCursor: *id018
+    AnnotationBatch:
+      type: object
+      additionalProperties: false
+      required:
+      - selectionId
+      properties:
+        selectionId: *id003
+        addTagIds:
+          type: array
+          items: *id003
+          maxItems: 100
+        removeTagIds:
+          type: array
+          items: *id003
+          maxItems: 100
+        reviewState:
+          $ref: '#/components/schemas/ReviewState'
+    BatchResult:
+      type: object
+      additionalProperties: false
+      required:
+      - selectionId
+      - updatedCount
+      properties:
+        selectionId: *id003
+        updatedCount: *id016
+    TagCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - label
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 64
+    TagUpdate:
+      type: object
+      additionalProperties: false
+      required:
+      - label
+      - expectedVersion
+      properties:
+        label:
+          type: string
+          minLength: 1
+          maxLength: 64
+        expectedVersion: *id016

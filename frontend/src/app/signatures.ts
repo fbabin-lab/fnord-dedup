@@ -38,6 +38,7 @@ import { TagPicker } from './tag-picker';
         <label>Filename matching <select formControlName="filenameMatchMode" aria-label="Filename matching"><option value="ADVISORY">Advisory filename (content fingerprint only)</option><option value="REQUIRED_EXACT">Require exact basename bytes</option></select></label>
         <label><input type="checkbox" formControlName="enabled"> Signature enabled</label><label>Source note <input formControlName="sourceNote" maxlength="2000"></label>
       </div>
+      @if (!observation()) { <p class="small muted">Editing the filename clears the base64 override and uses its exact UTF-8 bytes. For a non-UTF-8 basename, leave the filename unchanged or edit the base64 override directly.</p> }
       @if (form.controls.filenameMatchMode.value==='REQUIRED_EXACT') { <p class="notice">Required-exact excludes renamed copies even when their content is identical. Matching uses case-sensitive raw basename bytes.</p> }
       <label>Signature memo <textarea formControlName="memo" maxlength="20000" rows="5"></textarea></label>
       <app-tag-picker label="Signature tags" [selected]="tags()" (selectedChange)="tags.set($event)" />
@@ -82,9 +83,16 @@ export class Signatures implements OnInit,OnDestroy {
   readonly importFormat=new FormControl<'JSON'|'CSV'>('JSON',{nonNullable:true}); readonly exportFormat=new FormControl<'JSON'|'CSV'>('JSON',{nonNullable:true});
   readonly policy=new FormControl<'REJECT_EXISTING_ID'|'UPDATE_BY_ID'>('REJECT_EXISTING_ID',{nonNullable:true});
   readonly form=new FormGroup({name:new FormControl('',{nonNullable:true}),memo:new FormControl('',{nonNullable:true}),sizeBytes:new FormControl('',{nonNullable:true}),checksum:new FormControl('',{nonNullable:true}),filename:new FormControl('',{nonNullable:true}),filenameBytesBase64:new FormControl('',{nonNullable:true}),filenameMatchMode:new FormControl<'ADVISORY'|'REQUIRED_EXACT'>('ADVISORY',{nonNullable:true}),enabled:new FormControl(true,{nonNullable:true}),sourceNote:new FormControl('',{nonNullable:true})});
-  private listGeneration=0; private editGeneration=0; private timer?:ReturnType<typeof setInterval>; private applyKey=crypto.randomUUID(); private hashKey=crypto.randomUUID(); private exportRequest?:{payload:string;key:string};
+  // Ordinary filename edits must not keep a previous basename's raw-byte override.
+  // Loading a saved record suppresses events so non-UTF-8 basenames stay lossless.
+  private readonly filenameChanges=this.form.controls.filename.valueChanges.subscribe(()=> {
+    this.form.controls.filenameBytesBase64.setValue('',{emitEvent:false});
+  });
+  private listGeneration=0; private editGeneration=0; private timer?:ReturnType<typeof setInterval>; private applyKey=crypto.randomUUID(); private exportRequest?:{payload:string;key:string};
+  // A transport retry keeps its key; only a known terminal job permits a new intent.
+  private hashRequest?:{scanId:string;observationId:string;key:string;jobId?:string};
   ngOnInit():void { void this.initialize(); this.timer=setInterval(()=> { if(['QUEUED','BUILDING'].includes(this.artifact()?.state ?? '')) void this.refreshArtifact(); },2000); }
-  ngOnDestroy():void { if(this.timer) clearInterval(this.timer); this.editGeneration++; this.listGeneration++; }
+  ngOnDestroy():void { this.filenameChanges.unsubscribe(); if(this.timer) clearInterval(this.timer); this.editGeneration++; this.listGeneration++; }
   async initialize():Promise<void> { await this.load();
     try { this.limits.set(await this.api.signatureLimits()); const q=this.route.snapshot.queryParamMap;
       if(q.get('observationId')) { this.fresh(); const source=await this.api.observation(q.get('observationId')!); this.observation.set(source); }
@@ -94,8 +102,8 @@ export class Signatures implements OnInit,OnDestroy {
     } catch(e) { this.error.set(errorMessage(e)); }
   }
   async load(cursor?:string|null):Promise<void> { const generation=++this.listGeneration; this.error.set(''); try { const page=await this.api.signatures(this.query.value,cursor ? this.page()?.catalogRevision : null,cursor); if(generation===this.listGeneration) this.page.set(page); } catch(e) { if(generation===this.listGeneration) this.error.set(errorMessage(e)); } }
-  fresh():void { this.editGeneration++; this.record.set(null); this.observation.set(null); this.tags.set([]); this.form.reset({name:'',memo:'',sizeBytes:'',checksum:'',filename:'',filenameBytesBase64:'',filenameMatchMode:'ADVISORY',enabled:true,sourceNote:''}); this.editing.set(true); }
-  edit(record:Signature):void { this.editGeneration++; this.record.set(record); this.observation.set(null); this.tags.set(record.tags); this.form.reset({...record,filename:record.filename ?? '',filenameBytesBase64:record.filenameBytesBase64 ?? ''}); this.historyRevision.setValue(record.revision); this.editing.set(true); }
+  fresh():void { this.editGeneration++; this.record.set(null); this.observation.set(null); this.tags.set([]); this.form.reset({name:'',memo:'',sizeBytes:'',checksum:'',filename:'',filenameBytesBase64:'',filenameMatchMode:'ADVISORY',enabled:true,sourceNote:''},{emitEvent:false}); this.editing.set(true); }
+  edit(record:Signature):void { this.editGeneration++; this.record.set(record); this.observation.set(null); this.tags.set(record.tags); this.form.reset({...record,filename:record.filename ?? '',filenameBytesBase64:record.filenameBytesBase64 ?? ''},{emitEvent:false}); this.historyRevision.setValue(record.revision); this.editing.set(true); }
   async historical():Promise<void> { const old=this.record(),generation=this.editGeneration; if(!old) return; try { const record=await this.api.signature(old.id,this.historyRevision.value); if(generation===this.editGeneration) this.edit(record); } catch(e) { this.error.set(errorMessage(e)); } }
   async reload():Promise<void> { const old=this.record(),generation=this.editGeneration; if(!old) return; try { const record=await this.api.signature(old.id); if(generation===this.editGeneration) this.edit(record); } catch(e) { this.error.set(errorMessage(e)); } }
   async save():Promise<void> { if(this.busy()) return; const generation=this.editGeneration,old=this.record(),source=this.observation(),v=this.form.getRawValue();
@@ -103,7 +111,48 @@ export class Signatures implements OnInit,OnDestroy {
     const body:SignatureWrite=source ? {...metadata,observationId:source.id} : {...metadata,sizeBytes:v.sizeBytes,algorithm:'SHA-256',checksum:v.checksum,filename:v.filename || null,filenameBytesBase64:v.filenameBytesBase64 || null,...(old ? {expectedRevision:old.revision} : {})};
     this.busy.set(true); this.error.set(''); try { const result=await this.api.saveSignature(old?.id ?? null,body); if(generation===this.editGeneration) this.edit(result); this.notice.set('Signature revision saved. Existing hashes will be rematched without source reads.'); await this.load(); } catch(e) { this.error.set(errorMessage(e)); } finally { this.busy.set(false); }
   }
-  async hashObservation():Promise<void> { const source=this.observation(); if(!source || this.busy()) return; this.busy.set(true); this.error.set(''); try { const result=await this.api.hash(source.scanId,[source.id],false,this.hashKey); this.notice.set('Hash job '+result.jobId+' queued. Reload observation evidence after it finishes, then continue creating the signature.'); await this.refreshObservation(); } catch(e) { this.error.set(errorMessage(e)); } finally { this.busy.set(false); } }
+  async hashObservation():Promise<void> {
+    const source=this.observation(),generation=this.editGeneration;
+    if(!source || this.busy() || source.hash?.pending || source.hash?.status==='ACCEPTED') return;
+    const current=()=>generation===this.editGeneration && this.observation()?.id===source.id && this.observation()?.scanId===source.scanId;
+    if(this.hashRequest?.scanId!==source.scanId || this.hashRequest.observationId!==source.id)
+      this.hashRequest={scanId:source.scanId,observationId:source.id,key:crypto.randomUUID()};
+    let request=this.hashRequest;
+    this.busy.set(true); this.error.set(''); this.notice.set('');
+    try {
+      if(request.jobId) {
+        const job=await this.api.job(request.jobId);
+        if(!current()) return;
+        if(!['COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED'].includes(job.state)) {
+          this.notice.set('Hash job '+job.id+' is '+job.state+'. Manage the existing job from the scan page; no new job was submitted.');
+          await this.refreshObservation();
+          return;
+        }
+        // The displayed evidence can lag completion, or another tab can have queued work.
+        const observed=await this.api.observation(source.id);
+        if(!current()) return;
+        this.observation.set(observed);
+        if(observed.hash?.status==='ACCEPTED') {
+          this.notice.set('This observation already has an accepted SHA-256. Continue creating the signature.');
+          return;
+        }
+        if(observed.hash?.pending) {
+          this.notice.set('Another hash request is pending for this observation. Follow scan progress; no new job was submitted.');
+          return;
+        }
+        request={scanId:source.scanId,observationId:source.id,key:crypto.randomUUID()};
+        this.hashRequest=request;
+      }
+      const result=await this.api.hash(request.scanId,[request.observationId],false,request.key);
+      // Remember acknowledgement before refreshing evidence, even if that refresh fails.
+      request.jobId=result.jobId;
+      if(!current()) return;
+      this.notice.set('Hash request recorded as job '+result.jobId+'. Follow scan progress, then reload observation evidence to continue creating the signature.');
+      await this.refreshObservation();
+    } catch(e) {
+      if(current()) this.error.set(errorMessage(e));
+    } finally { this.busy.set(false); }
+  }
   async refreshObservation():Promise<void> { const source=this.observation(),generation=this.editGeneration; if(!source) return; try { const result=await this.api.observation(source.id); if(generation===this.editGeneration) this.observation.set(result); } catch(e) { this.error.set(errorMessage(e)); } }
   choose(event:Event):void { const file=(event.target as HTMLInputElement).files?.[0] ?? null; this.file.set(file); this.staged.set(null); if(file?.name.toLowerCase().endsWith('.csv')) this.importFormat.setValue('CSV'); else this.importFormat.setValue('JSON'); }
   async stage():Promise<void> { const file=this.file(); if(!file || this.busy()) return; if(this.limits() && file.size>this.limits()!.importBytes) { this.error.set('Catalog file exceeds the configured upload byte limit.'); return; } this.busy.set(true); this.error.set('');

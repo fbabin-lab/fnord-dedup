@@ -1,4 +1,89 @@
-# M2 verification — 2026-09-29
+# M3 verification — 2026-09-29
+
+Verified code commit: `fd94c190df65b737cae5d0e03574314758ba9616`  
+Verified code tree: `9005b06ac6debd044eba6e976f0d6f7380e3817f`  
+Branch: `feature/m3-explorer-annotations`  
+Parent: M2 draft, `91d9916c22dfe9c89c059c3dd29fcdf5447bd8cf`
+
+M3 implementation is ready for review, stacked on the unmerged M2 branch. It adds the stored-file explorer, combined metadata search, exact server sorting/keyset pages, location memos/tags/review states, optimistic edits and audit history, frozen bulk annotation selections, and explicit selection-based checksum requests. **Full deployment acceptance remains blocked:** independent native PostgreSQL concurrency/durability, actual process-kill recovery and Docker/read-only-mount gates are unverified. AT-52 is covered here only for frozen selection groundwork; review plans themselves remain M6. No signature matching, text indexing, byte verification, review plans or exports are claimed.
+
+## Executed M3 checks
+
+Final checks ran September 29, 2026, against the code above. This record is a documentation-only follow-up commit. In total, **75 tests/scenarios passed and two native-only tests were explicitly skipped**.
+
+| Check | Result |
+|---|---|
+| Gradle unit/native suite | PASS: 16 tests, zero failures/skips. Linux source adapter and protection regressions retained. |
+| PostgreSQL-engine integration suite | PASS in the PGlite harness: 44 passed, two native-only cases skipped. Eleven explorer/annotation/selection cases, 17 hash cases, nine inventory cases, and seven HTTP/security cases passed. Flyway V1–V4 applied. |
+| Angular tests | PASS: 12 tests, zero failures/errors/skips, verified from final JUnit XML. Includes draft preservation, late-response isolation, exact decimal filters and BigInt display. |
+| Angular production build | PASS: 530.86 kB initial bundle, estimated transfer 123.51 kB. |
+| Locked OpenAPI generation/check | PASS: `npm run api:check`; generated TypeScript matches the staged contract. Dependency pins/locks unchanged. |
+| Playwright browser suite | PASS: three scenarios in 51.4 seconds, production Angular bundle under production CSP, real Spring API and native worker on generated fixtures. |
+| Production JAR | PASS: ZIP/CRC valid, 41,551,501 bytes, 329 entries. No test fixture/registry/integration classes. SHA-256 `ebd16497393875018d4fb8a1e4e8916d99df018e901f43817f43827a360984fd`. |
+| Repository review | Whitespace check, unchanged specification/license/native adapter, and exact local/remote code-tree equality pass. No fixtures, credentials, dependencies or build outputs committed. |
+
+The M3 browser scenario created a scan with **1,255 observations**, expanded saved directory nodes, navigated breadcrumbs, searched a unique-size file, saved a plain-text memo and a reusable tag containing inert HTML, opened a second tab, and demonstrated a 409 conflict without losing that tab's draft. It explicitly reloaded the saved note, froze one matching observation, applied KEEP, scheduled its checksum from the frozen selection, and observed ACCEPTED evidence. A second scan retained the same location memo, tag and KEEP state, with separate history rows. Desktop and 680-pixel-wide screenshots were inspected; the table scrolls horizontally within its panel on narrow screens, without document overflow. Existing foundation and pause/resume/disconnect/hash scenarios also passed.
+
+Early integration failures were fixture mistakes: a newline path needed raw-byte lookup, and synthetic giant size values had to avoid observations already referenced by immutable analysis. The corrected cases pass. The first browser attempt used an invalid idempotency key containing spaces; the second reached the genuine two-tab conflict before its exact label lookup stalled at a select. The fixture key and form control labels were corrected, then all scenarios passed. Review also found and fixed cross-scan annotation-baseline invalidation, isolated late annotation responses when changing selected files, and retained the earlier hash-request idempotency format. A final visual pass improved narrow-table column widths and awaited rendered accepted evidence before capturing the screenshot.
+
+## Commands and environment boundary
+
+Backend checks used the committed Gradle wrapper with Java 21, through the existing local runner supplying proxy/JDK settings:
+
+```bash
+FNORD_TEST_SQL_HARNESS=pglite \
+SPRING_FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK=false \
+FNORD_TEST_DB_URL='jdbc:postgresql://127.0.0.1:55439/postgres?preferQueryMode=simple' \
+./gradlew test integrationTest bootJar --offline
+```
+
+Frontend checks ran from `frontend`:
+
+```bash
+npm test -- --watch=false --reporters=junit --output-file='<scratch report path>'
+npm run build
+npm run api:check
+```
+
+The SQL harness is PGlite 0.5.8, PostgreSQL 18.3 and pglite-socket 0.2.11. It is a single-engine test harness, not independent native PostgreSQL sessions or WAL/crash certification. Simple JDBC mode, the Flyway transactional-lock override and test-schema search paths are harness accommodations, not deployment settings. Production still targets the pinned native PostgreSQL 18.6 image. Groovy 5.0.8, Spring Boot 4.1.1, Gradle 8.14.3, Java 21, JNA 5.18.1, Angular/Material 22.0.7, TypeScript 6.0.3, Node 24.19, Vitest 4.0.18 and Playwright 1.63.0 are unchanged. The isolated OpenAPI generator remains 7.13.0 with TypeScript 5.9.3.
+
+Browser execution used the test-only generated-fixture server and temporary same-origin proxy:
+
+```bash
+FNORD_TEST_FIXTURE_MODE=generated-only ./gradlew inventoryBrowserFixture --offline
+FNORD_EXPECT_NATIVE_FIXTURES=true FNORD_TEST_URL=http://127.0.0.1:18088 \
+FNORD_TEST_PASSWORD='<disposable test password>' \
+FNORD_CHROMIUM_EXECUTABLE='<Chromium 153.0.8010.0 executable>' npm run e2e
+```
+
+No operator sources or host mounts were changed. Native fixture access uses the existing test-only mount-guard seam; deployed source protections remain untouched. The production JAR excludes the fixture server. This does not certify Docker read-only binds, non-root mount/permission behavior or blocked network I/O.
+
+## M3 acceptance evidence
+
+| Cases | Evidence and limits |
+|---|---|
+| AT-29 | Stored search, annotation/history and breadcrumbs continue with fixture source opening disabled. Browser lazy tree/navigation uses saved observations. Cached source status is explicitly last validation, not a live availability claim. |
+| AT-30 | Combined literal name/path, extension/source/subtree/parent/type, inclusive bytes, exact nanosecond UTC half-open bounds, full SHA-256/prefix, hash/duplicate state, tags ANY/ALL, memo/review and error/stale filters. Literal `%`/`_`, newline and raw non-UTF-8 identity cases pass. Future signature/content filters reject unknown fields with 422. |
+| AT-31 | Every sort in both directions traverses equal-key and null-key fixtures without duplicates/skips. Filter, annotation and evidence changes reject cursors. A global search clock also detects invalidation of an older scan used by a note baseline. New rows alone stay outside the captured cutoff. This is not a million-row performance test. |
+| AT-32 | Same-location rescan preserves notes; replacement content/identity triggers the review warning; renamed location gets no inherited notes. Browser confirms persisted memo/tag/KEEP across two native scans and separate location-history observations. |
+| AT-33 | Stale expected versions reject writes; browser two-tab conflict retains draft. Frozen IDs/count/snapshots remain fixed during synthetic inventory growth. Atomic conflict leaves zero batch edits; successful batches emit item/summary audit records and replay idempotently. Actor scope, tag rename, expiry, 500-row cap/no truncation and single-use behavior are covered. Independent simultaneous native PostgreSQL sessions remain unverified. |
+| AT-42 | Synthetic file size `9223372036854775807`, frozen known-byte sum `18446744073709551614`, JSON decimal strings, exact size filtering and Angular BigInt unit conversion pass without allocating giant files. Unknown sizes are counted separately. |
+| AT-45 | Native filenames, memos and reusable tags containing HTML render as escaped text. Browser confirms no injected image/script; unit tests preserve inert tags and warning text. Signature/content rendering awaits M4/M5. |
+| AT-52 groundwork | Frozen input IDs, annotation snapshots, accepted attempts and analysis context persist. A changed tag/annotation/evidence/baseline/analysis makes the selection need review instead of changing membership. Full review-plan provenance, keeper safety and exports remain M6/M7. |
+| AT-23 extension | Actor-owned frozen selection can explicitly schedule a unique-size checksum; stale/ambiguous selections reject. Existing pre-M3 hash idempotency payload format remains replayable. Browser follows a real frozen-selection hash through acceptance. |
+| AT-43 regression | Authentication remains required, annotation/batch mutations require CSRF, authenticated tag create works, and invalid search input returns structured 422. |
+
+M3 also fixes a prematurely inferred unique-size status: files remain NOT_REQUESTED while the size-candidate set is still being materialized. NOT_REQUESTED_UNIQUE_SIZE is shown only after that phase completes. A 501-file fixture covers this boundary and the frozen-selection limit.
+
+On a Docker-capable Linux/amd64 host, run `./scripts/test-all` with harness overrides unset and `./scripts/smoke-test`; then exercise actual persistent-process kill/restart, independent sessions, nested mounts/rebinding and non-root permission cases. The two existing native-only tests remain skipped here. Million-row queries, sustained contention, backup/restore and deployment performance are unverified. Selection/audit/history retention is currently indefinite; no purge is implemented.
+
+Work stops at the reviewable **M3 implementation milestone**. Next is **M4: the versioned signature catalog and explicit broader coverage**, after resolving any defects found by outstanding runtime gates. Nothing was merged or deployed.
+
+---
+
+The following records are historical and describe their earlier code commits, not the M3 implementation.
+
+# Historical M2 verification — 2026-09-29
 
 Verified code commit: `91dc69daac11a58daf186d101d328eda2363185a`  
 Verified code tree: `a0fb6626df1f0a8487125ae8fb5763a1f60dac71`  

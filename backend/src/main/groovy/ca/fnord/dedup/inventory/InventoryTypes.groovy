@@ -58,6 +58,9 @@ class InventoryEntry {
 
 @CompileStatic
 class WorkClaim {
+    String kind = 'DIRECTORY'
+    UUID entryId
+    Map<String,Object> payload = [:]
     UUID id
     UUID jobId
     UUID scanId

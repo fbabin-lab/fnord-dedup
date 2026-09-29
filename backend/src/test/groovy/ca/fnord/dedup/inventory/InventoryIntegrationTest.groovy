@@ -63,7 +63,10 @@ class InventoryIntegrationTest {
         service = new InventoryService(store,sources)
     }
     Map create(String key = UUID.randomUUID().toString(), List<UUID> ids = [sourceId]) {
-        service.create([name:'Generated inventory',sourceIds:ids*.toString()],key,'operator',correlation)
+        Map result=service.create([name:'Generated inventory',sourceIds:ids*.toString()],key,'operator',correlation)
+        jdbc.update("UPDATE job SET type='INVENTORY' WHERE id=?",UUID.fromString(result.jobId))
+        jdbc.update('UPDATE scan SET options=jsonb_set(options,?,?::jsonb) WHERE id=?','{inventoryOnly}', 'true',UUID.fromString(result.scanId))
+        result
     }
     Map finish(Map created, InventoryStore target = store) {
         def worker = new InventoryWorker(target,sources)
@@ -365,6 +368,8 @@ class InventoryIntegrationTest {
         String testRevision = 'a'*64
         String statusOverride,failList,failMetadata
         boolean failRoot
+        boolean allowBodyReads
+        Closure readHook
         int bodyReads
         FixtureRegistry(InventoryStore store) {
             super(new SourceProperties(),null,store.jdbc,store.mapper)
@@ -396,7 +401,17 @@ class InventoryIntegrationTest {
                     delegate.list(path)
                 }
                 @Override byte[] readLink(byte[] path) { delegate.readLink(path) }
-                @Override ReadOnlyFileAccess.RegularFile openRegular(byte[] path,FileMetadata expected) { registry.bodyReads++; throw new AssertionError('Inventory must never read source file bodies.') }
+                @Override ReadOnlyFileAccess.RegularFile openRegular(byte[] path,FileMetadata expected) {
+                    registry.bodyReads++
+                    if (!registry.allowBodyReads) throw new AssertionError('Inventory must never read source file bodies.')
+                    def file=delegate.openRegular(path,expected)
+                    new ReadOnlyFileAccess.RegularFile() {
+                        @Override int read(byte[] buffer) { int count=file.read(buffer); registry.readHook?.call(path,buffer,count); count }
+                        @Override FileMetadata metadata() { file.metadata() }
+                        @Override boolean validateComplete() { file.validateComplete() }
+                        @Override void close() { file.close() }
+                    }
+                }
                 @Override void close() { delegate.close() }
             }
         }

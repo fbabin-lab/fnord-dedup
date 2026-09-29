@@ -7,12 +7,12 @@ import { Api, SystemInfo, errorMessage } from './api';
   selector: 'app-dashboard', imports: [RouterLink, MatButtonModule],
   template: `
     <p class="eyebrow">WORKSPACE OVERVIEW</p><h1>Know what is in your sources.</h1>
-    <p class="lede">Build a saved, read-only inventory of your configured files.</p>
+    <p class="lede">Find identical content with saved, read-only scans of your configured files.</p>
     @if (error()) { <p class="error" role="alert">{{ error() }}</p><button mat-button (click)="load()">Try again</button> }
     @if (info(); as details) {
       <section class="panel"><div class="section-head"><h2>Inventory ready</h2><span class="badge">{{ details.version }}</span></div>
         <p>Scan whole configured sources, follow saved progress, and browse committed observations.</p>
-        <p class="notice"><strong>Metadata inventory only.</strong> Duplicate analysis, checksums, signature matching, and text indexing arrive in later milestones.</p>
+        <p class="notice"><strong>SHA-256 duplicate analysis.</strong> Scans hash repeated-size files. Unique-size checksums require an explicit request. Signature matching and text indexing are not available yet.</p>
         <a mat-flat-button routerLink="/scans">Open scans</a>
       </section>
       <div class="columns"><section class="panel"><h2>Source protection</h2><p>Source mounts must be read-only. File access rejects symbolic-link traversal and validates the object opened.</p></section>

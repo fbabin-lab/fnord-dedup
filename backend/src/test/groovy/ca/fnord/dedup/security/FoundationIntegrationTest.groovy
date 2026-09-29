@@ -57,7 +57,7 @@ class FoundationIntegrationTest {
     }
 
     @Test @Order(1) void schemaAndAnonymousAccess() {
-        assertEquals(2,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
+        assertEquals(3,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM source_configuration',Integer))
         for (String path : ['/api/v1/sources','/api/v1/system/info','/api/v1/scans','/api/v1/observations/anything','/api/v1/exports/anything/download'])
             mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath('$.code').value('AUTHENTICATION_REQUIRED'))
@@ -114,4 +114,16 @@ class FoundationIntegrationTest {
         for (String action : ['pause','resume','cancel'])
             mvc.perform(post('/api/v1/jobs/'+id+'/'+action).with(user('operator')).with(token())).andExpect(status().isNotFound())
     }
+    @Test @Order(6) void hashRoutesRequireAuthenticationCsrfAndBoundedIds() {
+        mvc.perform(get('/api/v1/duplicate-groups/'+UUID.randomUUID())).andExpect(status().isUnauthorized())
+        mvc.perform(post('/api/v1/hash-jobs').with(user('operator')).contentType('application/json').content('{}')).andExpect(status().isForbidden())
+        mvc.perform(post('/api/v1/hash-jobs').with(user('operator')).with(token()).contentType('application/json')
+            .content('{"scanId":"'+UUID.randomUUID()+'","observationIds":[]}'))
+            .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath('$.code').value('INVALID_SELECTION'))
+        mvc.perform(get('/api/v1/scans/'+UUID.randomUUID()+'/duplicate-groups').with(user('operator')))
+            .andExpect(status().isNotFound()).andExpect(jsonPath('$.code').value('SCAN_NOT_FOUND'))
+        mvc.perform(get('/api/v1/observations/'+UUID.randomUUID()+'/hash-attempts').with(user('operator')))
+            .andExpect(status().isNotFound()).andExpect(jsonPath('$.code').value('OBSERVATION_NOT_FOUND'))
+    }
+
 }

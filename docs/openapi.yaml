@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: Fnord Dedup inventory API
-  version: 0.2.0-M1
-  description: M1 durable metadata inventory. Inventory-only completion does not imply duplicate analysis or content indexing.
-    No source mutations, raw downloads or arbitrary-path inputs.
+  title: Fnord Dedup scan and evidence API
+  version: 0.3.0-M2
+  description: Durable inventory, repeated-size SHA-256 hashing and immutable duplicate analysis. Unique-size hashing requires
+    an explicit manual request. No source mutations, raw downloads or arbitrary-path inputs.
 servers:
 - url: /api/v1
 security:
@@ -108,8 +108,8 @@ paths:
   /scans:
     post:
       operationId: createScan
-      description: Queue whole registered roots. At most ten unfinished jobs and five creations per actor per minute. Only
-        metadata is inventoried in M1.
+      description: Queue whole registered roots, inventory metadata, hash only repeated-size regular files, then publish duplicate
+        analysis. At most ten unfinished jobs and five creations per actor per minute.
       parameters:
       - $ref: '#/components/parameters/Csrf'
       - $ref: '#/components/parameters/Idempotency'
@@ -445,6 +445,162 @@ paths:
           $ref: '#/components/responses/Problem'
         '503':
           $ref: '#/components/responses/Problem'
+  /hash-jobs:
+    post:
+      operationId: createHashJob
+      description: Explicit bounded selection in one frozen scan. Normal requests reuse accepted hashes without refreshing
+        their timestamps; forceRehash reads anew. A conflicting fresh digest invalidates active evidence. Jobs use the same
+        admission, control and lease rules as scans.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Idempotency'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HashRequest'
+      responses:
+        '202':
+          description: Saved result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HashCreated'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /observations/{id}/hash-attempts:
+    get:
+      operationId: hashAttempts
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: &id002
+          type: string
+          format: uuid
+      - $ref: '#/components/parameters/Cursor'
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 20
+      responses:
+        '200':
+          description: Saved result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HashAttemptPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /scans/{id}/duplicate-groups:
+    get:
+      operationId: duplicateGroups
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      - $ref: '#/components/parameters/Cursor'
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 50
+      - name: analysisId
+        in: query
+        schema: *id002
+        description: Pin the published revision while paging. Omitting it selects the current revision; a cursor from a different
+          revision is rejected.
+      responses:
+        '200':
+          description: Saved result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupPage'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /duplicate-groups/{id}:
+    get:
+      operationId: duplicateGroup
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id002
+      - $ref: '#/components/parameters/Cursor'
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Saved result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupDetail'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     session:
@@ -464,7 +620,7 @@ components:
       in: query
       description: Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly
         committed rows.
-      schema: &id004
+      schema: &id006
         type: string
     Limit:
       name: limit
@@ -531,7 +687,7 @@ components:
           type: string
         milestone:
           type: string
-          const: M1
+          const: M2
         platform:
           type: string
         sourcePolicy:
@@ -545,7 +701,7 @@ components:
           pattern: ^[0-9a-f]{64}$
         inventoryOnly:
           type: boolean
-          const: true
+          const: false
     SourceList:
       type: object
       required:
@@ -662,7 +818,7 @@ components:
         jobId: *id001
         inventoryOnly:
           type: boolean
-          const: true
+          description: False for new M2 scans. Replaying a historical M1 idempotency key preserves its original true value.
     Job:
       type: object
       required:
@@ -693,15 +849,28 @@ components:
       - completedWork
       - totalKnown
       - waitingForIo
+      - candidateFiles
+      - candidateBytes
+      - hashedFiles
+      - reusedFiles
+      - physicalBytesRead
+      - usefulBytesHashed
       properties:
         id: *id001
         scanId: *id001
         type:
           type: string
-          const: INVENTORY
+          enum:
+          - INVENTORY
+          - SCAN
+          - HASH
         phase:
           type: string
-          const: INVENTORY
+          enum:
+          - INVENTORY
+          - CANDIDATE_SELECTION
+          - HASHING
+          - ANALYSIS
         state:
           type: string
           enum:
@@ -715,13 +884,13 @@ components:
           - COMPLETED
           - COMPLETED_WITH_ERRORS
           - FAILED
-        version: &id003
+        version: &id004
           type: string
           pattern: ^[0-9]+$
-        createdAt: &id002
+        createdAt: &id003
           type: string
           format: date-time
-        updatedAt: *id002
+        updatedAt: *id003
         startedAt:
           type:
           - string
@@ -761,19 +930,26 @@ components:
         heartbeatSeconds:
           type: integer
           const: 10
-        discoveredEntries: *id003
-        discoveredFiles: *id003
-        discoveredDirectories: *id003
-        discoveredBytes: *id003
-        errorCount: *id003
-        skippedEntries: *id003
-        pendingWork: *id003
-        completedWork: *id003
-        totalKnown:
+        discoveredEntries: *id004
+        discoveredFiles: *id004
+        discoveredDirectories: *id004
+        discoveredBytes: *id004
+        errorCount: *id004
+        skippedEntries: *id004
+        pendingWork: *id004
+        completedWork: *id004
+        totalKnown: &id007
           type: boolean
-          const: false
-        waitingForIo: &id006
+        waitingForIo: &id009
           type: boolean
+        candidateFiles: &id005
+          type: string
+          pattern: ^[0-9]+$
+        candidateBytes: *id005
+        hashedFiles: *id005
+        reusedFiles: *id005
+        physicalBytesRead: *id005
+        usefulBytesHashed: *id005
     ScanSource:
       type: object
       required:
@@ -785,11 +961,11 @@ components:
       properties:
         sourceId: *id001
         sourceInstanceId: *id001
-        label: *id004
+        label: *id006
         rootLocationId: *id001
         coverage:
           type: string
-          enum: &id005
+          enum: &id008
           - COMPLETE
           - PARTIAL
           - UNAVAILABLE
@@ -806,28 +982,40 @@ components:
       - analysisAvailable
       - job
       - sources
+      - analysisId
+      - evidenceRevision
+      - latestJob
+      - activeHashJobs
       properties:
         id: *id001
-        name: *id004
-        configurationRevision: *id004
-        createdAt: *id002
+        name: *id006
+        configurationRevision: *id006
+        createdAt: *id003
         inventoryFrozenAt:
           type:
           - string
           - 'null'
           format: date-time
-        inventoryOnly:
-          type: boolean
-          const: true
-        analysisAvailable:
-          type: boolean
-          const: false
+        inventoryOnly: *id007
+        analysisAvailable: *id007
         job:
           $ref: '#/components/schemas/Job'
         sources:
           type: array
           items:
             $ref: '#/components/schemas/ScanSource'
+        analysisId:
+          anyOf:
+          - *id002
+          - type: 'null'
+        evidenceRevision: *id005
+        latestJob:
+          $ref: '#/components/schemas/Job'
+        activeHashJobs:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/Job'
     Observation:
       type: object
       required:
@@ -879,10 +1067,10 @@ components:
           - string
           - 'null'
           format: uuid
-        name: *id004
-        path: *id004
-        relativePathBytesBase64: *id004
-        nameBytesBase64: *id004
+        name: *id006
+        path: *id006
+        relativePathBytesBase64: *id006
+        nameBytesBase64: *id006
         extension:
           type:
           - string
@@ -990,14 +1178,16 @@ components:
           - string
           - 'null'
           format: date-time
-        discoveryStatus: *id004
+        discoveryStatus: *id006
         directoryCoverage:
           type:
           - string
           - 'null'
-          enum: *id005
-        unstable: *id006
-        observedAt: *id002
+          enum: *id008
+        unstable: *id009
+        observedAt: *id003
+        hash:
+          $ref: '#/components/schemas/HashEvidence'
     JobError:
       type: object
       required:
@@ -1008,12 +1198,12 @@ components:
       - detail
       - createdAt
       properties:
-        id: *id003
+        id: *id004
         locationId: *id001
-        displayPath: *id004
-        code: *id004
-        detail: *id004
-        createdAt: *id002
+        displayPath: *id006
+        code: *id006
+        detail: *id006
+        createdAt: *id003
     ScanPage:
       type: object
       required:
@@ -1077,4 +1267,258 @@ components:
           - string
           - 'null'
           format: uuid
-        displayPath: *id004
+        displayPath: *id006
+    HashAttempt:
+      type: object
+      required:
+      - id
+      - jobId
+      - algorithm
+      - digest
+      - bytesRead
+      - startedAt
+      - completedAt
+      - reasons
+      - outcome
+      - errorCode
+      - errorDetail
+      - preFingerprint
+      - postFingerprint
+      properties:
+        id: *id002
+        jobId: *id002
+        algorithm:
+          type: string
+          const: SHA-256
+        digest:
+          anyOf:
+          - &id012
+            type: string
+            pattern: ^[0-9a-f]{64}$
+          - type: 'null'
+        bytesRead: *id005
+        startedAt: &id010
+          type: string
+          format: date-time
+        completedAt:
+          anyOf:
+          - *id010
+          - type: 'null'
+        reasons:
+          type: array
+          items:
+            type: string
+            enum:
+            - DUPLICATE_SIZE
+            - MANUAL
+            - FORCED_RECHECK
+        outcome:
+          type: string
+          enum:
+          - READING
+          - ACCEPTED
+          - FAILED
+          - INTERRUPTED
+          - STOPPED
+          - CONFLICT
+        errorCode:
+          anyOf:
+          - &id011
+            type: string
+          - type: 'null'
+        errorDetail:
+          anyOf:
+          - *id011
+          - type: 'null'
+        preFingerprint:
+          anyOf:
+          - type: object
+            additionalProperties: true
+          - type: 'null'
+        postFingerprint:
+          anyOf:
+          - type: object
+            additionalProperties: true
+          - type: 'null'
+    HashEvidence:
+      type: object
+      required:
+      - status
+      - pending
+      - accepted
+      - latestAttempt
+      - invalidationCode
+      properties:
+        status:
+          type: string
+          enum:
+          - INELIGIBLE
+          - STALE
+          - ACCEPTED
+          - PENDING
+          - FAILED
+          - NOT_REQUESTED_UNIQUE_SIZE
+          - NOT_REQUESTED
+        pending: *id007
+        accepted:
+          anyOf:
+          - $ref: '#/components/schemas/HashAttempt'
+          - type: 'null'
+        latestAttempt:
+          anyOf:
+          - $ref: '#/components/schemas/HashAttempt'
+          - type: 'null'
+        invalidationCode:
+          anyOf:
+          - *id011
+          - type: 'null'
+    HashRequest:
+      type: object
+      required:
+      - scanId
+      - observationIds
+      properties:
+        scanId: *id002
+        observationIds:
+          type: array
+          items: *id002
+          minItems: 1
+          maxItems: 500
+          uniqueItems: true
+        forceRehash:
+          type: boolean
+          default: false
+      additionalProperties: false
+    HashCreated:
+      type: object
+      required:
+      - scanId
+      - jobId
+      properties:
+        scanId: *id002
+        jobId: *id002
+    HashAttemptPage:
+      type: object
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HashAttempt'
+        nextCursor:
+          anyOf:
+          - *id011
+          - type: 'null'
+    DuplicateGroup:
+      type: object
+      required:
+      - id
+      - analysisId
+      - scanId
+      - sizeBytes
+      - algorithm
+      - digest
+      - pathCount
+      - objectCount
+      - identityStatus
+      - evidenceLevel
+      - sourceIds
+      - pathLogicalBytes
+      - independentObjectLogicalBytes
+      - maximumDuplicateCopyLogicalBytes
+      - physicalSavingsBytes
+      properties:
+        id: *id002
+        analysisId: *id002
+        scanId: *id002
+        sizeBytes: *id005
+        algorithm:
+          type: string
+          const: SHA-256
+        digest: *id012
+        pathCount: *id005
+        objectCount:
+          anyOf:
+          - *id005
+          - type: 'null'
+        identityStatus:
+          type: string
+          enum:
+          - ALIASED_MOUNTS_UNCERTAIN
+          - IDENTITY_UNKNOWN
+          - HARD_LINKS_PRESENT
+          - DISTINCT_OBJECTS
+        evidenceLevel:
+          type: string
+          enum:
+          - HASH_IDENTICAL
+          - STALE
+        sourceIds:
+          type: array
+          items: *id002
+        pathLogicalBytes: *id005
+        independentObjectLogicalBytes:
+          anyOf:
+          - *id005
+          - type: 'null'
+        maximumDuplicateCopyLogicalBytes:
+          anyOf:
+          - *id005
+          - type: 'null'
+        physicalSavingsBytes:
+          type: 'null'
+    GroupPage:
+      type: object
+      required:
+      - analysisId
+      - evidenceRevision
+      - status
+      - items
+      - nextCursor
+      properties:
+        analysisId:
+          anyOf:
+          - *id002
+          - type: 'null'
+        evidenceRevision: *id005
+        status:
+          type: string
+          enum:
+          - NOT_AVAILABLE
+          - CURRENT
+          - NEEDS_REBUILD
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DuplicateGroup'
+        nextCursor:
+          anyOf:
+          - *id011
+          - type: 'null'
+    GroupDetail:
+      type: object
+      required:
+      - group
+      - members
+      - nextCursor
+      properties:
+        group:
+          $ref: '#/components/schemas/DuplicateGroup'
+        members:
+          type: array
+          items:
+            type: object
+            required:
+            - observation
+            - hash
+            properties:
+              observation:
+                $ref: '#/components/schemas/Observation'
+              hash:
+                $ref: '#/components/schemas/HashAttempt'
+        nextCursor:
+          anyOf:
+          - *id011
+          - type: 'null'

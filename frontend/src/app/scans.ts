@@ -10,11 +10,11 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
   selector: 'app-scans',
   imports: [RouterLink, ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatInputModule],
   template: `
-    <p class="eyebrow">DURABLE INVENTORY</p><h1>Scans</h1>
+    <p class="eyebrow">READ-ONLY SCANS</p><h1>Scans</h1>
     <p class="lede">Saved observations of whole sources. Files are never modified.</p>
     @if (error()) { <p class="error" role="alert">{{ error() }}</p> }
-    <section class="panel"><h2>New inventory</h2>
-      <p>Reads directory entries, file metadata, and symbolic-link targets. File contents are not read in this milestone.</p>
+    <section class="panel"><h2>New scan</h2>
+      <p>Inventories metadata, then reads regular files whose sizes occur at least twice in this scan to calculate SHA-256. Unique-size files stay unhashed unless you explicitly request a checksum.</p>
       <form [formGroup]="form" (ngSubmit)="create()">
         <mat-form-field appearance="outline"><mat-label>Scan name</mat-label><input matInput [formControl]="name" [readonly]="busy()" maxlength="200" (input)="resetKey()" required></mat-form-field>
         <fieldset><legend>Configured sources</legend>
@@ -23,12 +23,12 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
               <span>{{ source.label }} <span class="small muted">{{ source.status }}</span></span></label>
           } @empty { <p>No sources configured. <a routerLink="/sources">Review source setup</a>.</p> }
         </fieldset>
-        <button mat-flat-button type="submit" [disabled]="name.invalid || selected().size === 0 || busy()">{{ busy() ? 'Queueing…' : 'Start inventory' }}</button>
+        <button mat-flat-button type="submit" [disabled]="name.invalid || selected().size === 0 || busy()">{{ busy() ? 'Queueing…' : 'Start scan' }}</button>
       </form>
     </section>
     <section class="panel"><div class="section-head"><h2>Saved scans</h2><button mat-button (click)="load()">Refresh list</button></div>
       @if (page(); as scans) {
-        <div class="table-scroll"><table><thead><tr><th>Scan</th><th>Inventory status</th><th>Entries observed</th><th>Errors</th></tr></thead><tbody>
+        <div class="table-scroll"><table><thead><tr><th>Scan</th><th>Scan status</th><th>Entries observed</th><th>Errors</th></tr></thead><tbody>
           @for (scan of scans.items; track scan.id) {
             <tr><td><a [routerLink]="['/scans',scan.id]">{{ scan.name }}</a></td><td>{{ scan.job.state }}</td><td>{{ scan.job.discoveredEntries }}</td><td>{{ scan.job.errorCount }}</td></tr>
           } @empty { <tr><td colspan="4">No inventories yet. Start one from the configured sources above.</td></tr> }

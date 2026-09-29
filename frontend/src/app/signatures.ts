@@ -38,6 +38,7 @@ import { TagPicker } from './tag-picker';
         <label>Filename matching <select formControlName="filenameMatchMode" aria-label="Filename matching"><option value="ADVISORY">Advisory filename (content fingerprint only)</option><option value="REQUIRED_EXACT">Require exact basename bytes</option></select></label>
         <label><input type="checkbox" formControlName="enabled"> Signature enabled</label><label>Source note <input formControlName="sourceNote" maxlength="2000"></label>
       </div>
+      @if (!observation()) { <p class="small muted">Editing the filename clears the base64 override and uses its exact UTF-8 bytes. For a non-UTF-8 basename, leave the filename unchanged or edit the base64 override directly.</p> }
       @if (form.controls.filenameMatchMode.value==='REQUIRED_EXACT') { <p class="notice">Required-exact excludes renamed copies even when their content is identical. Matching uses case-sensitive raw basename bytes.</p> }
       <label>Signature memo <textarea formControlName="memo" maxlength="20000" rows="5"></textarea></label>
       <app-tag-picker label="Signature tags" [selected]="tags()" (selectedChange)="tags.set($event)" />
@@ -82,11 +83,16 @@ export class Signatures implements OnInit,OnDestroy {
   readonly importFormat=new FormControl<'JSON'|'CSV'>('JSON',{nonNullable:true}); readonly exportFormat=new FormControl<'JSON'|'CSV'>('JSON',{nonNullable:true});
   readonly policy=new FormControl<'REJECT_EXISTING_ID'|'UPDATE_BY_ID'>('REJECT_EXISTING_ID',{nonNullable:true});
   readonly form=new FormGroup({name:new FormControl('',{nonNullable:true}),memo:new FormControl('',{nonNullable:true}),sizeBytes:new FormControl('',{nonNullable:true}),checksum:new FormControl('',{nonNullable:true}),filename:new FormControl('',{nonNullable:true}),filenameBytesBase64:new FormControl('',{nonNullable:true}),filenameMatchMode:new FormControl<'ADVISORY'|'REQUIRED_EXACT'>('ADVISORY',{nonNullable:true}),enabled:new FormControl(true,{nonNullable:true}),sourceNote:new FormControl('',{nonNullable:true})});
+  // Ordinary filename edits must not keep a previous basename's raw-byte override.
+  // Loading a saved record suppresses events so non-UTF-8 basenames stay lossless.
+  private readonly filenameChanges=this.form.controls.filename.valueChanges.subscribe(()=> {
+    this.form.controls.filenameBytesBase64.setValue('',{emitEvent:false});
+  });
   private listGeneration=0; private editGeneration=0; private timer?:ReturnType<typeof setInterval>; private applyKey=crypto.randomUUID(); private exportRequest?:{payload:string;key:string};
   // A transport retry keeps its key; only a known terminal job permits a new intent.
   private hashRequest?:{scanId:string;observationId:string;key:string;jobId?:string};
   ngOnInit():void { void this.initialize(); this.timer=setInterval(()=> { if(['QUEUED','BUILDING'].includes(this.artifact()?.state ?? '')) void this.refreshArtifact(); },2000); }
-  ngOnDestroy():void { if(this.timer) clearInterval(this.timer); this.editGeneration++; this.listGeneration++; }
+  ngOnDestroy():void { this.filenameChanges.unsubscribe(); if(this.timer) clearInterval(this.timer); this.editGeneration++; this.listGeneration++; }
   async initialize():Promise<void> { await this.load();
     try { this.limits.set(await this.api.signatureLimits()); const q=this.route.snapshot.queryParamMap;
       if(q.get('observationId')) { this.fresh(); const source=await this.api.observation(q.get('observationId')!); this.observation.set(source); }
@@ -96,8 +102,8 @@ export class Signatures implements OnInit,OnDestroy {
     } catch(e) { this.error.set(errorMessage(e)); }
   }
   async load(cursor?:string|null):Promise<void> { const generation=++this.listGeneration; this.error.set(''); try { const page=await this.api.signatures(this.query.value,cursor ? this.page()?.catalogRevision : null,cursor); if(generation===this.listGeneration) this.page.set(page); } catch(e) { if(generation===this.listGeneration) this.error.set(errorMessage(e)); } }
-  fresh():void { this.editGeneration++; this.record.set(null); this.observation.set(null); this.tags.set([]); this.form.reset({name:'',memo:'',sizeBytes:'',checksum:'',filename:'',filenameBytesBase64:'',filenameMatchMode:'ADVISORY',enabled:true,sourceNote:''}); this.editing.set(true); }
-  edit(record:Signature):void { this.editGeneration++; this.record.set(record); this.observation.set(null); this.tags.set(record.tags); this.form.reset({...record,filename:record.filename ?? '',filenameBytesBase64:record.filenameBytesBase64 ?? ''}); this.historyRevision.setValue(record.revision); this.editing.set(true); }
+  fresh():void { this.editGeneration++; this.record.set(null); this.observation.set(null); this.tags.set([]); this.form.reset({name:'',memo:'',sizeBytes:'',checksum:'',filename:'',filenameBytesBase64:'',filenameMatchMode:'ADVISORY',enabled:true,sourceNote:''},{emitEvent:false}); this.editing.set(true); }
+  edit(record:Signature):void { this.editGeneration++; this.record.set(record); this.observation.set(null); this.tags.set(record.tags); this.form.reset({...record,filename:record.filename ?? '',filenameBytesBase64:record.filenameBytesBase64 ?? ''},{emitEvent:false}); this.historyRevision.setValue(record.revision); this.editing.set(true); }
   async historical():Promise<void> { const old=this.record(),generation=this.editGeneration; if(!old) return; try { const record=await this.api.signature(old.id,this.historyRevision.value); if(generation===this.editGeneration) this.edit(record); } catch(e) { this.error.set(errorMessage(e)); } }
   async reload():Promise<void> { const old=this.record(),generation=this.editGeneration; if(!old) return; try { const record=await this.api.signature(old.id); if(generation===this.editGeneration) this.edit(record); } catch(e) { this.error.set(errorMessage(e)); } }
   async save():Promise<void> { if(this.busy()) return; const generation=this.editGeneration,old=this.record(),source=this.observation(),v=this.form.getRawValue();

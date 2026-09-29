@@ -3,6 +3,23 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { firstValueFrom } from 'rxjs';
 import type { components } from './api-schema';
 
+export type SearchQuery = components['schemas']['SearchQuery'];
+export type SearchFilters = components['schemas']['SearchFilters'];
+export type SearchEntry = components['schemas']['SearchEntry'];
+export type SearchPage = components['schemas']['SearchPage'];
+export type Annotation = components['schemas']['Annotation'];
+export type AnnotationUpdate = components['schemas']['AnnotationUpdate'];
+export type Tag = components['schemas']['Tag'];
+export type TagPage = components['schemas']['TagPage'];
+export type ReviewState = components['schemas']['ReviewState'];
+export type Directory = components['schemas']['Directory'];
+export type HistoryPage = components['schemas']['HistoryPage'];
+export type Selection = components['schemas']['Selection'];
+export type SelectionDetail = components['schemas']['SelectionDetail'];
+export type SelectionRequest = components['schemas']['SelectionRequest'];
+export type AnnotationBatch = components['schemas']['AnnotationBatch'];
+export type BatchResult = components['schemas']['BatchResult'];
+
 export type Session = components['schemas']['Session'];
 export type SourceList = components['schemas']['SourceList'];
 export type SystemInfo = components['schemas']['SystemInfo'];
@@ -46,6 +63,18 @@ export class Api {
   async hash(scanId: string, observationIds: string[], forceRehash: boolean, key: string): Promise<components['schemas']['HashCreated']> {
     return firstValueFrom(this.http.post<components['schemas']['HashCreated']>('/api/v1/hash-jobs', {scanId,observationIds,forceRehash}, {headers:{'Idempotency-Key':key}}));
   }
+  hashSelection(scanId: string, selectionId: string, key: string): Promise<components['schemas']['HashCreated']> { return firstValueFrom(this.http.post<components['schemas']['HashCreated']>('/api/v1/hash-jobs',{scanId,selectionId,forceRehash:false},{headers:{'Idempotency-Key':key}})); }
+  search(scanId: string, body: SearchQuery): Promise<SearchPage> { return firstValueFrom(this.http.post<SearchPage>(`/api/v1/scans/${encodeURIComponent(scanId)}/files/search`,body)); }
+  directory(scanId: string, locationId: string): Promise<Directory> { return this.get(`/api/v1/scans/${encodeURIComponent(scanId)}/directories/${encodeURIComponent(locationId)}`); }
+  annotation(locationId: string, observationId: string): Promise<Annotation> { return this.get(`/api/v1/locations/${encodeURIComponent(locationId)}/annotation?observationId=${encodeURIComponent(observationId)}`); }
+  saveAnnotation(locationId: string, body: AnnotationUpdate): Promise<Annotation> { return firstValueFrom(this.http.put<Annotation>(`/api/v1/locations/${encodeURIComponent(locationId)}/annotation`,body)); }
+  history(locationId: string, cursor?: string | null): Promise<HistoryPage> { return this.get(`/api/v1/locations/${encodeURIComponent(locationId)}/history?limit=20`+cursorQuery(cursor)); }
+  tags(query = '', cursor?: string | null): Promise<TagPage> { return this.get('/api/v1/tags?limit=50&query='+encodeURIComponent(query)+cursorQuery(cursor)); }
+  createTag(label: string): Promise<Tag> { return firstValueFrom(this.http.post<Tag>('/api/v1/tags',{label})); }
+  renameTag(tag: Tag, label: string): Promise<Tag> { return firstValueFrom(this.http.patch<Tag>(`/api/v1/tags/${encodeURIComponent(tag.id)}`,{label,expectedVersion:tag.version})); }
+  freeze(scanId: string, body: SelectionRequest): Promise<Selection> { return firstValueFrom(this.http.post<Selection>(`/api/v1/scans/${encodeURIComponent(scanId)}/selections`,body)); }
+  selection(id: string, cursor?: string | null): Promise<SelectionDetail> { return this.get(`/api/v1/selections/${encodeURIComponent(id)}?limit=100`+cursorQuery(cursor)); }
+  annotationBatch(body: AnnotationBatch, key: string): Promise<BatchResult> { return firstValueFrom(this.http.post<BatchResult>('/api/v1/annotation-batches',body,{headers:{'Idempotency-Key':key}})); }
   job(id: string): Promise<Job> { return this.get(`/api/v1/jobs/${encodeURIComponent(id)}`); }
   attempts(id: string, cursor?: string | null): Promise<HashAttemptPage> { return this.get(`/api/v1/observations/${encodeURIComponent(id)}/hash-attempts?limit=20` + cursorQuery(cursor)); }
   groups(scanId: string, revision?: string | null, cursor?: string | null): Promise<GroupPage> {

@@ -2,7 +2,7 @@
 
 A self-hosted, read-only file investigation application built with Groovy/Spring Boot, Angular, PostgreSQL and Docker Compose.
 
-**Current delivery: M2 SHA-256 hashing and duplicate analysis (draft).** Scans inventory metadata, hash repeated-size regular files, and publish immutable duplicate groups. Unique-size files remain unhashed unless explicitly requested. Inspect hash attempts, reuse an accepted checksum or request a fresh read, and pause/resume/cancel durable work. Hard-link paths are distinguished from independent objects; physical savings remain unknown. Signature matching, text indexing, review plans and exports arrive in later milestones.
+**Current delivery: M3 stored-file explorer, search and location annotations (draft).** Browse a lazy directory tree, combine metadata filters, sort exact values, and inspect saved observations without reopening sources. Memos, reusable tags and review states persist at each location across scans; changed files show a review warning. Version checks protect two-tab edits, and bulk actions use frozen selections. Repeated-size SHA-256 hashing and duplicate analysis remain available, with explicit checksum requests for unique-size files. Signature matching, text indexing, review plans and exports arrive in later milestones.
 
 The application never modifies or deletes source files. Sources must be existing, explicitly configured, read-only mounts. No arbitrary-path API or source-download endpoint exists.
 
@@ -27,13 +27,13 @@ See [VERIFICATION.md](docs/VERIFICATION.md) for actual results and environment l
 
 `./scripts/test-all` runs the locked builds, Groovy tests, real PostgreSQL integration tests (Testcontainers), Angular tests and API type checks. It requires Java 21, Node 24.15+ in the 24.x line and Docker. No globally installed Gradle or Angular CLI is needed.
 
-The next feature milestone is **M3 — metadata explorer, search, memos and tags**. The outstanding native PostgreSQL, process-restart and Docker acceptance gates in `VERIFICATION.md` still block deployment acceptance. M0–M2 remain drafts; any defects found by those checks must be resolved.
+The next feature milestone is **M4 — signature catalog and explicit broader coverage**. The outstanding native PostgreSQL, process-restart and Docker acceptance gates in `VERIFICATION.md` still block deployment acceptance. M0–M3 remain drafts; any defects found by those checks must be resolved.
 
 ## Project documents
 
 - [Specification](docs/SPECIFICATION.md) — authoritative product requirements.
 - [Milestones](docs/IMPLEMENTATION_PLAN.md) and [acceptance tests](docs/ACCEPTANCE_TESTS.md).
 - [Implemented API](docs/API.md) and [OpenAPI contract](docs/openapi.yaml).
-- [Foundation architecture](docs/adr/0001-foundation.md) and [durable inventory design](docs/adr/0002-durable-inventory.md), and [hash evidence design](docs/adr/0003-hash-evidence.md).
+- [Foundation architecture](docs/adr/0001-foundation.md) and [durable inventory design](docs/adr/0002-durable-inventory.md), and [hash evidence design](docs/adr/0003-hash-evidence.md), and [explorer/annotation design](docs/adr/0004-explorer-annotations.md).
 
 The existing GNU AGPL v3 license is preserved in [LICENSE](LICENSE).

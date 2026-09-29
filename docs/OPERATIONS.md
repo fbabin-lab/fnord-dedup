@@ -1,4 +1,4 @@
-# Operations — M2 scan and hash evidence
+# Operations — M3 explorer and location annotations
 
 This milestone inventories metadata, hashes repeated-size regular files with SHA-256, and publishes duplicate analysis through the Linux read-only adapter. It stores observations, attempts, revisions and job controls in PostgreSQL. Unique-size hashing requires an explicit manual request. Historical M1 scans remain inventory-only. There is no browser command for opening an arbitrary file.
 
@@ -31,7 +31,7 @@ cp deploy/application.example.yml deploy/application.yml
 
 Edit `deploy/.env` to set `FNORD_SOURCE_ARCHIVE` to an existing absolute host directory. Keep the bind's `read_only: true`, `create_host_path: false`, and private propagation. In `application.yml`, give each source a stable UUID and a stable backing-dataset `source-instance-id`. Generate new UUIDs with `python3 -c 'import uuid; print(uuid.uuid4())'`. Preserve both across normal restarts; assign a new source instance when replacing the backing dataset. Do not reuse the example identities for unrelated datasets.
 
-Repeat **both** the bind declaration and registry entry for additional sources. The UI cannot create mounts. The optional host-export prefix is an operator-supplied mapping for later export milestones; M2 performs no exports. An invalid/missing path is not automatically created. Source configuration is snapshotted in PostgreSQL by SHA-256 configuration revision; this hash is application configuration metadata, not a source-file hash.
+Repeat **both** the bind declaration and registry entry for additional sources. The UI cannot create mounts. The optional host-export prefix is an operator-supplied mapping for later export milestones; M3 performs no exports. An invalid/missing path is not automatically created. Source configuration is snapshotted in PostgreSQL by SHA-256 configuration revision; this hash is application configuration metadata, not a source-file hash.
 
 ```bash
 ./scripts/preflight
@@ -85,7 +85,7 @@ umask 077
 ./scripts/fnord up -d --wait
 ```
 
-M2 has no export artifacts. Later milestones must back up the artifact volume consistently with the database. Preserve private source configuration and identities separately from the dump. Restore only into a new isolated stack/database: after initializing it, feed the dump to `pg_restore -U fnord -d fnord --clean --if-exists` via `scripts/fnord exec -T postgres`. Ensure the isolated stack has its own project name, ports and volumes; do not point it at live writable sources. Backup/restore is documented but not exercised by the implementation environment.
+M3 has no export artifacts. Later milestones must back up the artifact volume consistently with the database. Preserve private source configuration and identities separately from the dump. Restore only into a new isolated stack/database: after initializing it, feed the dump to `pg_restore -U fnord -d fnord --clean --if-exists` via `scripts/fnord exec -T postgres`. Ensure the isolated stack has its own project name, ports and volumes; do not point it at live writable sources. Backup/restore is documented but not exercised by the implementation environment.
 
 Images and application dependencies are pinned. For updates, back up first, review migrations, build the new revision, then recreate services with `up -d --build --wait`. Flyway migrations are forward-only. A code rollback may require restoring a matching pre-upgrade database; do not modify an applied migration or reuse a PostgreSQL data volume across incompatible major versions.
 
@@ -114,7 +114,7 @@ A single database coordination lease permits one scheduler. It lasts 60 seconds 
 
 For test-only native browser fixtures, point `FNORD_DB_URL` at a **disposable** database, supply the normal test credentials, set `FNORD_TEST_FIXTURE_MODE=generated-only`, and run `./gradlew inventoryBrowserFixture` from `backend`. This task uses the test classpath and generates its own temporary files. It bypasses mount validation for those generated fixtures only; the production JAR contains neither that fixture server nor its override. Use `FNORD_EXPECT_NATIVE_FIXTURES=true` with the Playwright suite against that server. This does not replace the Docker mount gate.
 
-The integration suite uses its own `inventory_test` and `hash_test` schemas. `FNORD_TEST_DB_URL`, when supplied instead of Testcontainers, must reference a disposable test database: tests clear fixture tables, and native tests terminate only the PostgreSQL connection they created to exercise rollback/recovery. Never point the suite at application history or an operator database.
+The integration suite uses its own `inventory_test`, `hash_test` and `explorer_test` schemas. `FNORD_TEST_DB_URL`, when supplied instead of Testcontainers, must reference a disposable test database: tests clear fixture tables, and native tests terminate only the PostgreSQL connection they created to exercise rollback/recovery. Never point the suite at application history or an operator database.
 
 
 ## Hashing and duplicate analysis
@@ -123,6 +123,25 @@ After inventory freezes, the server materializes repeated sizes and hash tasks i
 
 Open an observation to **Calculate checksum**, including a unique-size file. An accepted result is reused with its original time. **Force fresh checksum** requires a separate confirmation and performs a new read. A conflicting digest or changed observation invalidates dependent evidence; start a new scan to obtain new observations. A detected captured configuration/root identity mismatch invalidates the scan's evidence window conservatively, even if the configuration is later restored. Original inventory and attempts remain historical.
 
-Duplicate groups are published only after all capture/build/member batches finish. Group pages pin that immutable revision, and show `STALE` immediately when captured evidence is invalidated. A later manual job publishes a new analysis. Abandoned/interrupted builds are retained for investigation and are never current. M2 does not purge history automatically; monitor PostgreSQL growth.
+Duplicate groups are published only after all capture/build/member batches finish. Group pages pin that immutable revision, and show `STALE` immediately when captured evidence is invalidated. A later manual job publishes a new analysis. Abandoned/interrupted builds are retained for investigation and are never current. M3 does not purge history automatically; monitor PostgreSQL growth.
 
 Object counts are conservative. Unknown identity and repeated mount views produce no exact object-level estimate. The displayed duplicate-copy byte measure is theoretical; actual physical savings remain unknown. Byte comparison and review plans belong to M6. Signature candidates and text indexing are still rejected when enabled; those features remain M4/M5 requirements.
+
+
+## Explorer, notes and frozen review
+
+From a scan, choose **Open file explorer and notes**. The directory tree loads only saved directory pages. Breadcrumbs and table rows remain available when a source is disconnected. Source status is explicitly the last startup/job validation, not a live availability promise. Scan progress polls every ten seconds here without reloading note drafts; use **Refresh results** to capture new rows or annotation changes.
+
+Metadata filters combine with AND. Filename/path contains and exact filters compare literal, case-sensitive UTF-8 bytes; `%` and `_` are data. Use base64 exact-name/path filters for non-UTF-8 names. Extension values use the stored display extension, case-sensitive. Date bounds are UTC ISO instants ending in `Z`; the lower bound is inclusive and upper exclusive, including nanoseconds. Size inputs and displayed byte totals are decimal strings. Sorting happens on the server by raw name/path bytes, exact size or mtime, or checksum completion time, with UUID ties and nulls last. A stale cursor asks you to refresh rather than silently skipping changed rows.
+
+**Location annotations** apply to one raw path in one source instance. Enter a plain-text memo (20,000 Unicode characters), up to 100 reusable tags, and a review state. Tags trim Unicode whitespace and compare by NFKC followed by lowercase using Locale.ROOT; displayed spelling is retained. This normalization never applies to file identity. Editing a shared tag label changes its display at all associated locations.
+
+Notes persist across rescans. A differing file fingerprint, digest or invalidated baseline shows **File changed; review existing annotations.** Saving location notes explicitly reaffirms their baseline for the displayed observation. Renamed locations start without notes. `KEEP` is a stored preference for future protected review plans; `REMOVAL_REVIEW` performs no file action. All note/tag changes retain audit records. Memos and captured snapshots are application data; include them in database backup/privacy planning.
+
+When two views edit the same notes, a stale save returns a conflict and leaves the draft visible. **Discard draft and reload** explicitly replaces it with the latest stored value. Regular progress polling does not discard edits.
+
+**Select this page** chooses the visible rows; **Freeze all matching results** resolves every matching row in the captured view, up to 500. Larger sets are rejected without truncation: refine filters or select fewer rows. Review the frozen count, known logical bytes, unknown-size count and member preview before applying tags/review state. Targets never expand with new inventory rows. Member annotation/tag changes, accepted-evidence changes or a new analysis invalidate the review. The whole batch rolls back on conflict. Bulk tag/state updates preserve the existing memo baseline, including warnings about replacement content.
+
+Selections belong to the operator, expire after 24 hours, and remain in history. Each annotation selection applies once; request retries use the same idempotency key. **Calculate frozen checksums** explicitly authorizes reads for that frozen selection of eligible regular files, including unique-size observations. Follow the returned job from the scan progress view for pause/resume/cancel. Tagging and query operations never open source files.
+
+M3 adds forward-only Flyway migration V4. It does not modify V1–V3 or the source registry. The new views query saved PostgreSQL records; the application-level selection limit is 500, tree display limit is 1,000 directories, and breadcrumb limit is 256 ancestors. A single short annotation-clock lock serializes metadata edits; million-row query scale and independent native PostgreSQL concurrency remain acceptance gates. No automatic selection/audit/history purge is implemented; monitor database growth.

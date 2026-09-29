@@ -1,5 +1,6 @@
 package ca.fnord.dedup.inventory
 
+import ca.fnord.dedup.explorer.*
 import com.zaxxer.hikari.HikariDataSource
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.*
@@ -51,7 +52,7 @@ class HashIntegrationTest {
         jdbc.execute("UPDATE scheduler_lock SET owner=NULL,token=0,expires_at='-infinity'")
         store=new InventoryStore(jdbc,new TransactionTemplate(new JdbcTransactionManager(pool)),JsonMapper.builder().build())
         sources=new InventoryIntegrationTest.FixtureRegistry(store); sources.allowBodyReads=true; sourceId=sources.add(fixture)
-        inventory=new InventoryService(store,sources); hashes=new HashService(store,inventory); worker=new InventoryWorker(store,sources)
+        inventory=new InventoryService(store,sources); hashes=new HashService(store,inventory,new SelectionService(store,new SearchService(store,new AnnotationService(store,inventory)),new AnnotationService(store,inventory))); worker=new InventoryWorker(store,sources)
     }
     Map create(List ids=[sourceId]) { inventory.create([name:'Generated hash fixtures',sourceIds:ids*.toString()],UUID.randomUUID().toString(),'operator',correlation) }
     Map job(Map created) { inventory.job(UUID.fromString(created.jobId)) }

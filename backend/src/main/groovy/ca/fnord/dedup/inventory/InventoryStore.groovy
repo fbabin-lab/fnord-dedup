@@ -54,6 +54,7 @@ class InventoryStore {
     void state(UUID id, String state, String actor, String code = null) {
         jdbc.update('''UPDATE job SET state=?, block_code=?, version=version+1, updated_at=clock_timestamp(),
             finished_at=CASE WHEN ? THEN clock_timestamp() ELSE NULL END WHERE id=?''', state,code,TERMINAL.contains(state),id)
+        jdbc.update('UPDATE scan SET query_revision=query_revision+1 WHERE id=(SELECT scan_id FROM job WHERE id=?)',id)
         event(id,state,actor,code == null ? Map.of() : [code:code])
     }
 
@@ -273,6 +274,7 @@ class InventoryStore {
         Map original = one('SELECT id,fingerprint=?::jsonb AS matches FROM scan_entry WHERE scan_id=? AND location_id=?',fp,c.scanId,locationId)
         boolean stable = original.matches == Boolean.TRUE
         if (!stable) {
+            jdbc.update('UPDATE scan SET query_revision=query_revision+1 WHERE id=?',c.scanId)
             jdbc.update("INSERT INTO observation_validation(entry_id,outcome,observed_fingerprint) VALUES (?,'UNSTABLE',?::jsonb) ON CONFLICT DO NOTHING",original.id,fp)
             error(c,locationId,'UNSTABLE','Metadata differed on directory replay; the first committed observation was retained.')
         }
@@ -304,6 +306,7 @@ class InventoryStore {
             if (code != null) error(c,c.locationId,code,detail ?: 'Directory enumeration failed.')
             jdbc.update("UPDATE work_item SET state=?,outcome=?,lease_owner=NULL,lease_expires_at=NULL WHERE id=?",code == null ? 'DONE' : 'ERROR',code ?: outcome,c.id)
             jdbc.update('UPDATE job SET pending_work=pending_work-1,completed_work=completed_work+1,checkpoint_at=clock_timestamp() WHERE id=?',c.jobId)
+            jdbc.update('UPDATE scan SET query_revision=query_revision+1 WHERE id=?',c.scanId)
             if (c.kind == 'DIRECTORY') resolveCoverage(c,c.locationId)
             settleControl(c.jobId)
         }

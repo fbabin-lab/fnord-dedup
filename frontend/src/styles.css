@@ -52,3 +52,28 @@ td.path button { white-space: normal; height: auto; text-align: left; padding: 5
 .inventory-error { border-top: 1px solid #e2e8f0; padding: 14px 0; }
 .inventory-error p { margin: 6px 0; }
 @media(max-width:650px) { .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+.explorer-layout { display: grid; grid-template-columns: 240px minmax(0,1fr); gap: 18px; align-items: start; }
+.directory-tree { padding: 18px; }
+.explorer-results { min-width: 0; }
+.tree-row { display: flex; align-items: center; }
+.tree-row button.path { text-align: left; min-width: 0; white-space: normal; height: auto; }
+.tree-toggle { border: 1px solid #c4d1df; background: #f4f8fb; border-radius: 4px; min-width: 26px; min-height: 28px; color: #174c88; cursor: pointer; }
+.filter-form { margin: 18px 0; }
+.filter-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin: 12px 0; }
+.filter-form label, app-annotation-editor label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+input:not([type=checkbox]),select,textarea { border: 1px solid #acbccd; border-radius: 5px; padding: 9px 10px; font: inherit; max-width: 100%; color: #1b293b; background: white; }
+textarea { width: 100%; resize: vertical; }
+summary { cursor: pointer; color: #174c88; padding: 10px 0; }
+.tag-picker { margin: 12px 0; }
+.tag-picker label { display: inline-block; }
+.tag-picker .actions { padding: 5px 0; }
+.tag-label { display: inline-block; padding: 3px 6px; background: #edf3f8; border-radius: 4px; margin: 2px; font-size: 12px; }
+td small { display: block; color: #56667b; font-size: 11px; margin: 5px 0; }
+.exact-number { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.breadcrumbs { display: flex; flex-wrap: wrap; gap: 0; }
+@media(min-width:1200px) { main:has(app-explorer) { max-width: 1550px; } }
+@media(max-width:950px) { .explorer-layout { grid-template-columns: 1fr; } .directory-tree { max-height: 400px; overflow: auto; } }
+@media(max-width:650px) { .filter-grid { grid-template-columns: 1fr; } }
+
+.explorer-results table { min-width: 850px; }
+.explorer-results td.path { min-width: 180px; }

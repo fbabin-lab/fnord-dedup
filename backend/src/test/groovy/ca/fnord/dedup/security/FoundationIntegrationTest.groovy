@@ -57,9 +57,9 @@ class FoundationIntegrationTest {
     }
 
     @Test @Order(1) void schemaAndAnonymousAccess() {
-        assertEquals(3,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
+        assertEquals(4,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM source_configuration',Integer))
-        for (String path : ['/api/v1/sources','/api/v1/system/info','/api/v1/scans','/api/v1/observations/anything','/api/v1/exports/anything/download'])
+        for (String path : ['/api/v1/sources','/api/v1/system/info','/api/v1/scans','/api/v1/observations/anything','/api/v1/exports/anything/download','/api/v1/tags','/api/v1/locations/anything/annotation','/api/v1/selections/anything'])
             mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath('$.code').value('AUTHENTICATION_REQUIRED'))
         mvc.perform(get('/api/v1/session')).andExpect(status().isOk()).andExpect(jsonPath('$.authenticated').value(false))
         mvc.perform(get('/api/v1/system/health')).andExpect(status().isOk()).andExpect(jsonPath('$.status').value('UP'))
@@ -124,6 +124,14 @@ class FoundationIntegrationTest {
             .andExpect(status().isNotFound()).andExpect(jsonPath('$.code').value('SCAN_NOT_FOUND'))
         mvc.perform(get('/api/v1/observations/'+UUID.randomUUID()+'/hash-attempts').with(user('operator')))
             .andExpect(status().isNotFound()).andExpect(jsonPath('$.code').value('OBSERVATION_NOT_FOUND'))
+    }
+
+    @Test @Order(7) void explorerMutationsRequireSessionAndCsrf() {
+        String id=UUID.randomUUID().toString()
+        mvc.perform(put('/api/v1/locations/'+id+'/annotation').with(user('operator')).contentType('application/json').content('{}')).andExpect(status().isForbidden())
+        mvc.perform(post('/api/v1/annotation-batches').with(user('operator')).contentType('application/json').content('{}')).andExpect(status().isForbidden())
+        mvc.perform(post('/api/v1/tags').with(user('operator')).with(token()).contentType('application/json').content('{"label":"HTTP fixture"}')).andExpect(status().isOk()).andExpect(jsonPath('$.version').value('1'))
+        mvc.perform(post('/api/v1/scans/'+id+'/files/search').with(user('operator')).with(token()).contentType('application/json').content('{"filters":{"unknown":"x"}}')).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath('$.code').value('INVALID_REQUEST'))
     }
 
 }

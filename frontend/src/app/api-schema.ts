@@ -338,6 +338,161 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/scans/{id}/files/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Database-only AND filters. Text contains/exact compares literal UTF-8 bytes, case-sensitive; % and _ are data. Raw base64 supports non-UTF-8 names. Sorts use raw bytes, exact integers/nanoseconds, UUID tiebreaker and nulls last. Cursors bind filters, committed entry cutoff and evidence/query/annotation revisions; changes return 409 CURSOR_STALE. Future signature/content filters return 422. */
+        post: operations["searchFiles"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{scanId}/directories/{locationId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Saved directory context and at most 256 ancestor breadcrumbs; never probes sources. */
+        get: operations["directory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/locations/{id}/annotation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Location notes relative to the requested observation, or most recently inventoried observation. Default version 0. File changes preserve notes and set needsReview. */
+        get: operations["annotation"];
+        /** @description Expected-version optimistic concurrency; 409 preserves the previous value. Saving explicitly reaffirms the selected observation as the note baseline. Plain-text memo max 20,000 Unicode code points; at most 100 manual tags. Audited. */
+        put: operations["updateAnnotation"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/locations/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Stored observations across scans in sequence order. History is never duplicate-copy evidence. */
+        get: operations["locationHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bounded catalog; literal normalized-label search. Labels trim Unicode whitespace, compare NFKC then Locale.ROOT lowercase, and preserve entered display form. This never normalizes filenames. */
+        get: operations["tags"];
+        put?: never;
+        /** @description Creates a reusable manual tag; normalized-label duplicates return 409. */
+        post: operations["createTag"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tags/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Optimistic catalog rename. Existing association labels update; captured selections become needsReview. */
+        patch: operations["renameTag"];
+        trace?: never;
+    };
+    "/scans/{id}/selections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Atomically freezes all matching or explicit IDs in the captured view. 1–500 rows; overflow is rejected without truncation. Captures annotation versions/snapshots and accepted attempt IDs. Actor-bound, expires in 24 hours. New inventory rows never extend it. */
+        post: operations["freezeSelection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/selections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Frozen count/bytes/query and paged captured members, with current state and capturedAnnotation. Member annotation/tag/evidence or analysis changes set needsReview. Does not mutate captured targets. */
+        get: operations["selection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/annotation-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Atomic, audited, single-use frozen bulk tagging/review-state edit. Stale members or expired selection return 409 with zero updates. New rows alone do not block a captured batch. Existing memo baselines are preserved. Idempotency-Key replays the original response. */
+        post: operations["applyAnnotationBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -354,7 +509,7 @@ export interface components {
             name: string;
             version: string;
             /** @constant */
-            milestone: "M2";
+            milestone: "M3";
             platform: string;
             /** @constant */
             sourcePolicy: "READ_ONLY";
@@ -612,10 +767,15 @@ export interface components {
         HashRequest: {
             /** Format: uuid */
             scanId: string;
-            observationIds: string[];
+            observationIds?: string[];
             /** @default false */
             forceRehash: boolean;
-        };
+            /**
+             * Format: uuid
+             * @description Actor-owned unexpired frozen selection. Supply exactly one of observationIds or selectionId. Stale selection returns 409.
+             */
+            selectionId?: string;
+        } & (unknown | unknown);
         HashCreated: {
             /** Format: uuid */
             scanId: string;
@@ -664,6 +824,200 @@ export interface components {
                 hash: components["schemas"]["HashAttempt"];
             }[];
             nextCursor: string | null;
+        };
+        Tag: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            version: string;
+        };
+        TagPage: {
+            items: components["schemas"]["Tag"][];
+            nextCursor: string | null;
+        };
+        /** @enum {string} */
+        ReviewState: "UNREVIEWED" | "REVIEWED" | "KEEP" | "REMOVAL_REVIEW";
+        Annotation: {
+            /** Format: uuid */
+            locationId: string;
+            /** Format: uuid */
+            observationId: string;
+            version: string;
+            memo: string;
+            reviewState: components["schemas"]["ReviewState"];
+            tags: components["schemas"]["Tag"][];
+            needsReview: boolean;
+            /** Format: uuid */
+            baselineObservationId: string | null;
+            /** Format: date-time */
+            updatedAt: string | null;
+            updatedBy: string | null;
+        };
+        AnnotationUpdate: {
+            /** Format: uuid */
+            observationId: string;
+            expectedVersion: string;
+            memo: string;
+            tagIds: string[];
+            reviewState: components["schemas"]["ReviewState"];
+        };
+        SearchFilters: {
+            nameContains?: string;
+            pathContains?: string;
+            nameExact?: string;
+            pathExact?: string;
+            extension?: string;
+            memoContains?: string;
+            /** Format: uuid */
+            sourceId?: string;
+            /** Format: uuid */
+            subtreeLocationId?: string;
+            /** Format: uuid */
+            parentLocationId?: string;
+            /** Format: uuid */
+            duplicateGroupId?: string;
+            minBytes?: string;
+            maxBytes?: string;
+            /**
+             * Format: date-time
+             * @description UTC ISO instant ending in Z. Lower inclusive, upper exclusive; nanoseconds retained.
+             */
+            mtimeFrom?: string;
+            /**
+             * Format: date-time
+             * @description UTC ISO instant ending in Z. Lower inclusive, upper exclusive; nanoseconds retained.
+             */
+            mtimeTo?: string;
+            nameBytesBase64?: string;
+            pathBytesBase64?: string;
+            /** @enum {string} */
+            entryType?: "REGULAR" | "DIRECTORY" | "SYMLINK" | "SPECIAL" | "UNKNOWN";
+            checksum?: string;
+            checksumPrefix?: string;
+            /** @enum {string} */
+            hashStatus?: "ACCEPTED" | "PENDING" | "FAILED" | "STALE" | "INELIGIBLE" | "NOT_REQUESTED" | "NOT_REQUESTED_UNIQUE_SIZE";
+            /** @enum {string} */
+            duplicateState?: "DUPLICATE" | "STALE" | "NOT_GROUPED";
+            tagIds?: string[];
+            /**
+             * @description Server default: ANY.
+             * @enum {string}
+             */
+            tagMode?: "ANY" | "ALL";
+            reviewState?: components["schemas"]["ReviewState"];
+            hasError?: boolean;
+            stale?: boolean;
+            annotationsNeedReview?: boolean;
+        };
+        SearchQuery: {
+            filters?: components["schemas"]["SearchFilters"];
+            /**
+             * @description Server default: path.
+             * @enum {string}
+             */
+            sort?: "name" | "path" | "size" | "mtime" | "checksumTime";
+            /**
+             * @description Server default: ASC.
+             * @enum {string}
+             */
+            direction?: "ASC" | "DESC";
+            /** @description Server default: 100. */
+            limit?: number;
+            cursor?: string | null;
+        };
+        SearchEntry: components["schemas"]["Observation"] & {
+            /** @enum {string} */
+            hashStatus: "ACCEPTED" | "PENDING" | "FAILED" | "STALE" | "INELIGIBLE" | "NOT_REQUESTED" | "NOT_REQUESTED_UNIQUE_SIZE";
+            checksum: string | null;
+            /** Format: date-time */
+            checksumCompletedAt: string | null;
+            /** @enum {string} */
+            duplicateState: "DUPLICATE" | "STALE" | "NOT_GROUPED";
+            /** Format: uuid */
+            duplicateGroupId: string | null;
+            stale: boolean;
+            hasError: boolean;
+            annotation: components["schemas"]["Annotation"];
+        };
+        SearchPage: {
+            items: components["schemas"]["SearchEntry"][];
+            nextCursor: string | null;
+            viewToken: string;
+            evidenceRevision: string;
+            annotationRevision: string;
+            /** Format: uuid */
+            analysisId: string | null;
+        };
+        HistoryPage: {
+            items: (components["schemas"]["Observation"] & {
+                annotation: components["schemas"]["Annotation"];
+                /** @enum {string} */
+                hashStatus: "ACCEPTED" | "PENDING" | "FAILED" | "STALE" | "INELIGIBLE" | "NOT_REQUESTED" | "NOT_REQUESTED_UNIQUE_SIZE";
+            })[];
+            nextCursor: string | null;
+        };
+        Directory: {
+            /** Format: uuid */
+            locationId: string;
+            path: string;
+            coverage: string | null;
+            breadcrumbs: {
+                /** Format: uuid */
+                locationId: string;
+                name: string;
+                path: string;
+            }[];
+        };
+        SelectionRequest: {
+            query: components["schemas"]["SearchQuery"];
+            viewToken: string;
+            observationIds?: string[];
+        };
+        Selection: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            scanId: string;
+            /** Format: uuid */
+            analysisId: string | null;
+            count: string;
+            totalBytes: string;
+            /** Format: date-time */
+            createdAt: string | null;
+            /** Format: date-time */
+            expiresAt: string | null;
+            expired: boolean;
+            /** Format: date-time */
+            appliedAt: string | null;
+            query: components["schemas"]["SearchQuery"];
+            /** @description Members lacking size. totalBytes sums known sizes only. */
+            unknownSizes: string;
+        };
+        SelectionDetail: components["schemas"]["Selection"] & {
+            needsReview: boolean;
+            items: (components["schemas"]["SearchEntry"] & {
+                capturedAnnotation: components["schemas"]["Annotation"];
+            })[];
+            nextCursor: string | null;
+        };
+        AnnotationBatch: {
+            /** Format: uuid */
+            selectionId: string;
+            addTagIds?: string[];
+            removeTagIds?: string[];
+            reviewState?: components["schemas"]["ReviewState"];
+        };
+        BatchResult: {
+            /** Format: uuid */
+            selectionId: string;
+            updatedCount: string;
+        };
+        TagCreate: {
+            label: string;
+        };
+        TagUpdate: {
+            label: string;
+            expectedVersion: string;
         };
     };
     responses: {
@@ -1321,6 +1675,368 @@ export interface operations {
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    searchFiles: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchQuery"];
+            };
+        };
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    directory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                scanId: string;
+                locationId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Directory"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    annotation: {
+        parameters: {
+            query?: {
+                observationId?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Annotation"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    updateAnnotation: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Annotation"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    locationHistory: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    tags: {
+        parameters: {
+            query?: {
+                query?: string;
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    createTag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagCreate"];
+            };
+        };
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    renameTag: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TagUpdate"];
+            };
+        };
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tag"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    freezeSelection: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Selection"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    selection: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelectionDetail"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    applyAnnotationBatch: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Retained at least 24 hours (currently indefinitely). Repeating the same normalized request returns its original response, even at capacity. */
+                "Idempotency-Key"?: components["parameters"]["Idempotency"];
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AnnotationBatch"];
+            };
+        };
+        responses: {
+            /** @description Stored application data */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchResult"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

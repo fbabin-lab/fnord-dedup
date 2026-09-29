@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_dir/deploy"
+compose_args=(-f compose.yaml)
+if [[ -f compose.sources.yaml ]]; then compose_args+=(-f compose.sources.yaml); fi
+exec docker compose "${compose_args[@]}" "$@"

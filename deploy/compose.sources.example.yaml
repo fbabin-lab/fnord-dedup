@@ -1,0 +1,19 @@
+services:
+  backend:
+    environment:
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml
+      FNORD_HOST_EXPORT_ARCHIVE: ${FNORD_SOURCE_ARCHIVE:?Set the existing absolute host directory}
+    volumes:
+      - type: bind
+        source: ${FNORD_SOURCE_ARCHIVE:?Set the existing absolute host directory}
+        target: /sources/archive
+        read_only: true
+        bind:
+          create_host_path: false
+          propagation: rprivate
+      - type: bind
+        source: ./application.yml
+        target: /config/application.yml
+        read_only: true
+        bind:
+          create_host_path: false

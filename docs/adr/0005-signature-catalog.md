@@ -1,0 +1,33 @@
+# ADR 0005 — Versioned catalog, explicit hash coverage and bounded catalog artifacts
+
+Status: implemented in M4; native concurrency/process and Docker acceptance remain open.
+
+## Context
+
+A user-maintained fingerprint can label unique content, but default scans must not silently broaden body reads. Catalog edits must reclassify existing accepted evidence without overwriting manual location notes. Imports and exports contain untrusted metadata, and a result must identify the exact rule/evidence revision that produced it.
+
+## Decision
+
+A singleton catalog clock serializes writes. Each signature has a stable UUID/current revision and immutable metadata/fingerprint revisions, reusable tag foreign keys and captured tag labels. `signatures_at(revision)` selects each record's last revision visible at that clock. Distinct IDs sharing size/digest deliberately coexist. Filename ADVISORY ignores basename; REQUIRED_EXACT adds exact bytes. Raw base64 is authoritative for non-UTF-8 basenames.
+
+The scheduler uses the existing database lease/fences, job controls and work checkpoints. Scan and manual hash pipelines add a matching phase after analysis. A matching run captures a catalog revision, evidence revision and entry cutoff, then writes at most 100 observation checks per transaction. Exact accepted-attempt pointers and signature revisions back immutable findings. Evidence changes abandon a partially built run and restart its capture; a completed run publishes through one current pointer. Catalog changes do not alter an active run's captured rules. A durable global clock plus each scan's scheduled catalog/evidence revision coalesces pending rematches, admitting one eligible idle scan at a time. Cancelled matching work is not silently restarted at the same scheduled input revision.
+
+Current coverage is a separate database view. Source-wide invalidation, observation instability, inactive/replaced accepted attempts and newly accepted evidence guard the published check immediately. An explicit historical run shows original statuses as history, never active labels. Manual annotation tables are not changed by matching. Frozen selections record the catalog and signature-run revisions; a later rule or publication change requires a fresh review without changing the captured IDs. Current/historical file findings are read under a scan share lock so publication or invalidation cannot mix the active flag with a different run. Effective-tag search joins active finding/tag references at their captured signature revisions and unions those IDs with manual tags.
+
+Default scan hashes remain duplicate-size only. The scan opt-in stores its creation-time catalog revision and uses duplicate-size union enabled-signature-size candidates; overlapping tasks retain both reasons and only one stream. Explicit checks first persist an actor-owned, expiring preview of exact files/bytes, evidence/catalog revisions and cutoff. Confirmation with `allowBodyReads:true` creates bounded selection work and ordinary full validated SHA-256 tasks. Accepted hashes are reused only for the same observation. Catalog writes and matching have no source adapter dependency.
+
+Imports use a bounded raw UTF-8 request, strict Jackson JSON (including duplicate-key/trailing-token rejection) or Apache Commons CSV 1.14.1 RFC4180. Staging validates all bounded rows and stores proposed values/errors without active changes. Apply locks annotation clock, catalog clock, then affected data, verifies catalog and record revisions, and writes the entire import plus tags/audit/retry response in one transaction. Row batching bounds memory, not transaction atomicity. Default conflict policy rejects existing IDs; updates require explicit policy and expected revisions. Formula-like strings stay inert.
+
+Catalog exports use their own durable database artifact records because a catalog has no source scan. The same scheduler lease transaction writes one 100-record chunk and checkpoint together. Revision-addressed inputs remain immutable while edits occur. Reservation limits bound artifact bytes and total ready/queued capacity. The final transaction streams bounded stored chunks through SHA-256, then publishes READY atomically. The scheduler rechecks its fence before committing. Failed/cancelled artifacts remove only their application-owned chunks and are never downloadable. Controls serialize on the artifact row; no long-lived native handle exists. Ready downloads are authenticated by artifact ID/actor and cannot name a filesystem path.
+
+JSON is exact metadata exchange. CSV uses the real RFC4180 writer and neutralizes textual spreadsheet prefixes, which intentionally changes display metadata. Basename base64 beginning `+` has a documented reversible CSV apostrophe marker; JSON/base64 never depends on a display filename. General file reports and review-plan manifests remain M7.
+
+## Lock ordering and bounds
+
+Workers retain scheduler → job → work → scan → search-clock ordering. Catalog mutations use annotation-clock → catalog-clock → optional scan-share for create-from-observation. Queries read the catalog clock without locking after their existing annotation/scan locks, preventing an inversion. Import staging/creation capacity and explicit check/export admission use the existing admission row before their other locks. Exports do not acquire catalog/annotation locks while holding their worker artifact row; immutable revision data needs no such lock.
+
+Matching and artifact assembly are checkpointed and bounded (100 observations/records; candidate selection 500). File hashing remains 1 MiB chunks. Import defaults are 1 MiB / 2,000 rows, with configurable hard ceilings. Tags are at most 100 per signature and queries/findings/history are keyset paged. Signature imports, revisions, findings, ready artifacts and audits have indefinite retention. Reserve caps are conservative and can refuse exports before actual database disk exhaustion; operators still monitor total database growth.
+
+## Evidence and limits
+
+AT-34–AT-41 are covered by generated-fixture integration/browser cases. Tests exercise all labels per fingerprint, exact basename rules, default unique-size gaps, explicit consent and candidate union, mid-run catalog edits, separate manual annotations, raw basename preservation, malformed/oversize staging, optimistic conflicts, rollback after earlier rows/tags have already been written, and export freeze/publication/quotas. See `VERIFICATION.md` for actual commands/results. The SQL harness does not establish simultaneous native PostgreSQL lock behavior, WAL durability, process-kill recovery, Docker read-only mounts or million-row performance.

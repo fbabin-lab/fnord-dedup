@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_dir/backend"
+./gradlew test integrationTest bootJar
+cd "$repo_dir/frontend"
+npm ci --no-audit --no-fund
+npm run api:check
+npm test
+npm run build
+printf '%s\n' 'Build, unit and PostgreSQL integration checks passed. Run scripts/smoke-test for the disposable Docker/browser gate.'

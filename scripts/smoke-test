@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""Disposable full-stack gate. Never mounts operator data or existing project volumes."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import secrets
+import socket
+import subprocess
+import tempfile
+import uuid
+
+repo = Path(__file__).resolve().parent.parent
+subprocess.run(['docker', 'info'], check=True, stdout=subprocess.DEVNULL)
+project = 'fnord-smoke-' + uuid.uuid4().hex[:10]
+with tempfile.TemporaryDirectory(prefix='fnord-smoke-') as directory:
+    tmp = Path(directory)
+    tmp.chmod(0o755)
+    for kind in ['read-only', 'writable']:
+        root = tmp / kind
+        root.mkdir(mode=0o777)
+        root.chmod(0o777)
+        for name in ['hello.txt', 'copy.txt', 'line\nfeed', 'cafe\u0301', '-leading']:
+            (root / name).write_bytes(b'hello')
+        fd = os.open(os.fsencode(root) + b'/invalid-\xff', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.write(fd, b'hello')
+        os.close(fd)
+    def snapshot():
+        result = {}
+        for kind in ['read-only', 'writable']:
+            with os.scandir(os.fsencode(tmp / kind)) as entries:
+                for entry in entries:
+                    stat = entry.stat(follow_symlinks=False)
+                    result[os.fsdecode(entry.path)] = [hashlib.sha256(Path(os.fsdecode(entry.path)).read_bytes()).hexdigest(), stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_mode, stat.st_nlink]
+        return result
+    before = snapshot()
+    password = secrets.token_urlsafe(24)
+    (tmp/'database-password').write_text(secrets.token_urlsafe(48))
+    (tmp/'operator-password-hash').touch()
+    for name in ['database-password', 'operator-password-hash']:
+        (tmp/name).chmod(0o444)
+    source_config = {'fnord': {'sources': [dict(id=str(uuid.uuid4()), **{'source-instance-id':str(uuid.uuid4()),
+        'key':kind, 'label':kind, 'container-path':'/sources/'+kind, 'enabled':True, 'cross-mounts':False}) for kind in ['read-only','writable']]}}
+    (tmp/'application.yml').write_text(json.dumps(source_config))
+    with socket.socket() as s:
+        s.bind(('127.0.0.1',0))
+        port = s.getsockname()[1]
+    env = dict(os.environ, COMPOSE_PROJECT_NAME=project, FNORD_PORT=str(port), FNORD_BIND_ADDRESS='127.0.0.1',
+        FNORD_SECURE_COOKIES='false', FNORD_OPERATOR_USERNAME='operator')
+    override = {'services': {'backend': {'environment': {'SPRING_CONFIG_ADDITIONAL_LOCATION':'file:/config/application.yml'},
+        'volumes': [dict(type='bind', source=str(tmp/kind), target='/sources/'+kind, read_only=kind=='read-only', bind={'create_host_path':False}) for kind in ['read-only','writable']]
+        + [dict(type='bind', source=str(tmp/'application.yml'), target='/config/application.yml', read_only=True, bind={'create_host_path':False})]}},
+        'secrets': {'database_password':{'file':str(tmp/'database-password')},'operator_password_hash':{'file':str(tmp/'operator-password-hash')}}}
+    (tmp/'compose.json').write_text(json.dumps(override))
+    compose = ['docker','compose','--project-name',project,'-f',str(repo/'deploy/compose.yaml'),'-f',str(tmp/'compose.json')]
+    def run(args, **kwargs):
+        return subprocess.run(args, check=True, env=env, **kwargs)
+    try:
+        run(compose+['build'])
+        config = json.loads(subprocess.check_output(compose+['config','--format','json'], env=env))
+        hashed = subprocess.check_output(['docker','run','--rm','-i','--network','none',config['services']['backend']['image'],'--hash-password-stdin'], input=password.encode())
+        (tmp/'operator-password-hash').chmod(0o600)
+        (tmp/'operator-password-hash').write_bytes(hashed)
+        (tmp/'operator-password-hash').chmod(0o444)
+        run(compose+['up','-d','--wait','--wait-timeout','180'])
+        result = subprocess.run(compose+['exec','-T','backend','touch','/sources/read-only/negative-probe'], env=env, capture_output=True)
+        if result.returncode == 0 or b'Read-only file system' not in result.stderr:
+            raise RuntimeError('Disposable read-only mount did not reject the write with EROFS.')
+        run(['npm','ci','--no-audit','--no-fund'], cwd=repo/'frontend')
+        run(['npx','playwright','install','chromium'], cwd=repo/'frontend')
+        env.update(FNORD_TEST_URL=f'http://127.0.0.1:{port}',FNORD_TEST_PASSWORD=password,FNORD_EXPECT_MOUNT_FIXTURES='true')
+        run(['npm','run','e2e'], cwd=repo/'frontend')
+        if snapshot() != before:
+            raise RuntimeError('Generated source fixture metadata or contents changed.')
+        print('PASS: healthy Compose stack, real login/CSRF/browser workflow, mount rejection and unchanged fixtures.')
+    finally:
+        # Only this randomly named disposable project is removed; operator stacks are never targeted.
+        subprocess.run(compose+['down','--volumes','--remove-orphans'], env=env, check=False)

@@ -95,6 +95,7 @@ class InventoryStore {
         List<Map<String,Object>> active = jdbc.queryForList("SELECT * FROM job WHERE state IN ('RUNNING','PAUSE_REQUESTED','CANCEL_REQUESTED') FOR UPDATE")
         for (Map row : active) {
             UUID id = (UUID)row.id
+            jdbc.update("UPDATE hash_attempt SET outcome='INTERRUPTED',completed_at=clock_timestamp(),error_code='PROCESS_INTERRUPTED' WHERE job_id=? AND outcome='READING'",id)
             jdbc.update("UPDATE work_item SET state='READY', lease_token=lease_token+1, lease_owner=NULL, lease_expires_at=NULL WHERE job_id=? AND state='LEASED'",id)
             if (row.state == 'CANCEL_REQUESTED') cancelLocked(id,'recovery')
             else state(id,'INTERRUPTED','recovery','PROCESS_INTERRUPTED')
@@ -126,6 +127,7 @@ class InventoryStore {
             // An expired worker must be fenced and explicitly resumed, not silently retried.
             if (one("SELECT id FROM work_item WHERE job_id=? AND state='LEASED' AND lease_expires_at<=clock_timestamp() LIMIT 1",jobId) != null) {
                 jdbc.update("UPDATE work_item SET state='READY',lease_token=lease_token+1,lease_owner=NULL,lease_expires_at=NULL WHERE job_id=? AND state='LEASED'",jobId)
+                jdbc.update("UPDATE hash_attempt SET outcome='INTERRUPTED',completed_at=clock_timestamp(),error_code='WORK_LEASE_EXPIRED' WHERE job_id=? AND outcome='READING'",jobId)
                 state(jobId,'INTERRUPTED','scheduler','WORK_LEASE_EXPIRED')
                 return null
             }
@@ -141,13 +143,13 @@ class InventoryStore {
                     AND ss.source_instance_id=l.source_instance_id AND ss.scan_id=?
                 JOIN scan s ON s.id=ss.scan_id WHERE l.id=?''',active.scan_id,work.location_id)
             jdbc.update('UPDATE job SET current_source_id=?,current_location_id=?,updated_at=clock_timestamp() WHERE id=?',target.source_id,work.location_id,jobId)
-            new WorkClaim(id:(UUID)work.id,jobId:jobId,scanId:(UUID)active.scan_id,locationId:(UUID)work.location_id,
+            new WorkClaim(id:(UUID)work.id,kind:(String)work.kind,entryId:(UUID)work.entry_id,payload:parse(work.payload.toString()),jobId:jobId,scanId:(UUID)active.scan_id,locationId:(UUID)work.location_id,
                 sourceId:(UUID)target.source_id,sourceInstanceId:(UUID)target.source_instance_id,owner:owner,schedulerToken:epoch,
                 token:((Number)row.lease_token).longValue(),path:(byte[])target.relative_path_bytes,
                 configurationRevision:(String)target.configuration_revision,sourceSnapshot:(String)target.snapshot,rootIdentity:(String)target.root_identity)
         }
     }
-    private Map<String,Object> fence(WorkClaim claim) {
+    Map<String,Object> fence(WorkClaim claim) {
         coordinator(claim.owner,claim.schedulerToken)
         Map<String,Object> j = job(claim.jobId,true)
         if (!(j.state in ['RUNNING','PAUSE_REQUESTED','CANCEL_REQUESTED'])) throw new LeaseLost()
@@ -193,9 +195,35 @@ class InventoryStore {
         Map row = job(id,true)
         if (row.state != 'RUNNING') { settleControl(id); return }
         if (one("SELECT id FROM work_item WHERE job_id=? AND state IN ('READY','LEASED') LIMIT 1",id) != null) return
+        if (row.type == 'SCAN' && row.phase == 'INVENTORY') {
+            jdbc.update('UPDATE scan SET inventory_frozen_at=clock_timestamp() WHERE id=?',scanId)
+            stage(id,scanId,'CANDIDATE_SELECTION','SELECT_CANDIDATES')
+            return
+        }
+        if (row.type in ['SCAN','HASH'] && row.phase != 'ANALYSIS') {
+            stage(id,scanId,'ANALYSIS','GROUP')
+            return
+        }
         state(id,((Number)row.error_count).longValue() > 0L || ((Number)row.skipped_entries).longValue() > 0L ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED','worker')
-        jdbc.update('UPDATE scan SET inventory_frozen_at=clock_timestamp() WHERE id=?',scanId)
+        if (row.type == 'INVENTORY') jdbc.update('UPDATE scan SET inventory_frozen_at=clock_timestamp() WHERE id=?',scanId)
         jdbc.update('UPDATE job SET current_source_id=NULL,current_location_id=NULL,checkpoint_at=clock_timestamp() WHERE id=?',id)
+    }
+
+    private void stage(UUID id, UUID scanId, String phase, String kind) {
+        UUID location = (UUID)one('SELECT root_location_id FROM scan_source WHERE scan_id=? ORDER BY source_id LIMIT 1',scanId).root_location_id
+        jdbc.update('INSERT INTO work_item(id,job_id,location_id,kind) VALUES (?,?,?,?)',UUID.randomUUID(),id,location,kind)
+        jdbc.update('UPDATE job SET phase=?,pending_work=pending_work+1 WHERE id=?',phase,id)
+        event(id,'PHASE_CHANGED','worker',[phase:phase])
+    }
+
+    /** A changed captured configuration/root invalidates this observation window in O(1). */
+    void invalidateScanEvidence(UUID scanId, String code, WorkClaim claim = null) {
+        tx.executeWithoutResult { status ->
+            if (claim != null) fence(claim)
+            one('SELECT id FROM scan WHERE id=? FOR UPDATE',scanId)
+            jdbc.update('UPDATE scan SET evidence_block_code=?,evidence_revision=evidence_revision+1 WHERE id=? AND evidence_block_code IS NULL',code,scanId)
+            if (claim != null) fence(claim)
+        }
     }
 
     void acceptRoot(WorkClaim c, FileMetadata identity) {
@@ -270,13 +298,13 @@ class InventoryStore {
         if (count > 0) jdbc.update('UPDATE job SET error_count=error_count+1 WHERE id=?',c.jobId)
         jdbc.update('UPDATE work_item SET has_issues=true WHERE id=?',c.id)
     }
-    void complete(WorkClaim c, String code = null, String detail = null) {
+    void complete(WorkClaim c, String code = null, String detail = null, String outcome = 'ENUMERATED') {
         tx.executeWithoutResult { status ->
             fence(c)
             if (code != null) error(c,c.locationId,code,detail ?: 'Directory enumeration failed.')
-            jdbc.update("UPDATE work_item SET state=?,outcome=?,lease_owner=NULL,lease_expires_at=NULL WHERE id=?",code == null ? 'DONE' : 'ERROR',code ?: 'ENUMERATED',c.id)
+            jdbc.update("UPDATE work_item SET state=?,outcome=?,lease_owner=NULL,lease_expires_at=NULL WHERE id=?",code == null ? 'DONE' : 'ERROR',code ?: outcome,c.id)
             jdbc.update('UPDATE job SET pending_work=pending_work-1,completed_work=completed_work+1,checkpoint_at=clock_timestamp() WHERE id=?',c.jobId)
-            resolveCoverage(c,c.locationId)
+            if (c.kind == 'DIRECTORY') resolveCoverage(c,c.locationId)
             settleControl(c.jobId)
         }
     }
@@ -285,7 +313,7 @@ class InventoryStore {
         UUID current = location
         while (current != null) {
             Map row = one('''SELECT w.*,l.parent_id FROM work_item w JOIN file_location l ON l.id=w.location_id
-                WHERE w.job_id=? AND w.location_id=? FOR UPDATE OF w''',c.jobId,current)
+                WHERE w.job_id=? AND w.location_id=? AND w.kind='DIRECTORY' FOR UPDATE OF w''',c.jobId,current)
             if (row == null || row.subtree_resolved == Boolean.TRUE || !(row.state in ['DONE','ERROR']) || ((Number)row.unresolved_children).longValue() != 0L) return
             String coverage = row.has_issues == Boolean.TRUE ? 'PARTIAL' : 'COMPLETE'
             if (row.parent_id == null && row.state == 'ERROR' && one('SELECT id FROM scan_entry WHERE scan_id=? AND location_id=? AND entry_type=?',c.scanId,current,'DIRECTORY') == null) coverage = 'UNAVAILABLE'

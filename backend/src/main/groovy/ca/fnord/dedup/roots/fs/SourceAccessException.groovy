@@ -6,9 +6,11 @@ import groovy.transform.CompileStatic
 class SourceAccessException extends IOException {
     final String code
     final int errno
-    SourceAccessException(String code, String message, int errno = 0) {
+    final int bytesRead
+    SourceAccessException(String code, String message, int errno = 0, int bytesRead = 0) {
         super(message)
         this.code = code
         this.errno = errno
+        this.bytesRead = bytesRead
     }
 }

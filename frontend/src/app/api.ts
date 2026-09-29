@@ -12,6 +12,9 @@ export type Observation = components['schemas']['Observation'];
 export type ChildrenPage = components['schemas']['ChildrenPage'];
 export type ErrorPage = components['schemas']['ErrorPage'];
 export type ScanPage = components['schemas']['ScanPage'];
+export type HashAttemptPage = components['schemas']['HashAttemptPage'];
+export type GroupPage = components['schemas']['GroupPage'];
+export type GroupDetail = components['schemas']['GroupDetail'];
 export type ScanRequest = components['schemas']['ScanRequest'];
 
 @Injectable({ providedIn: 'root' })
@@ -40,6 +43,15 @@ export class Api {
       throw error;
     }
   }
+  async hash(scanId: string, observationIds: string[], forceRehash: boolean, key: string): Promise<components['schemas']['HashCreated']> {
+    return firstValueFrom(this.http.post<components['schemas']['HashCreated']>('/api/v1/hash-jobs', {scanId,observationIds,forceRehash}, {headers:{'Idempotency-Key':key}}));
+  }
+  job(id: string): Promise<Job> { return this.get(`/api/v1/jobs/${encodeURIComponent(id)}`); }
+  attempts(id: string, cursor?: string | null): Promise<HashAttemptPage> { return this.get(`/api/v1/observations/${encodeURIComponent(id)}/hash-attempts?limit=20` + cursorQuery(cursor)); }
+  groups(scanId: string, revision?: string | null, cursor?: string | null): Promise<GroupPage> {
+    return this.get(`/api/v1/scans/${encodeURIComponent(scanId)}/duplicate-groups?limit=50` + (revision ? '&analysisId='+encodeURIComponent(revision) : '') + cursorQuery(cursor));
+  }
+  group(id: string, cursor?: string | null): Promise<GroupDetail> { return this.get(`/api/v1/duplicate-groups/${encodeURIComponent(id)}?limit=100` + cursorQuery(cursor)); }
   sources(): Promise<SourceList> { return this.get('/api/v1/sources'); }
   info(): Promise<SystemInfo> { return this.get('/api/v1/system/info'); }
   scans(cursor?: string | null): Promise<ScanPage> { return this.get('/api/v1/scans?limit=20' + cursorQuery(cursor)); }

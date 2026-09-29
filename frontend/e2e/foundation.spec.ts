@@ -13,7 +13,7 @@ test('authenticated foundation uses the real API, separate CSRF cookie, and logo
   await page.getByLabel('Password', { exact:true }).fill(password);
   await page.getByRole('button', {name:'Sign in',exact:true}).click();
   await expect(page.getByRole('heading', {name:'Inventory ready'})).toBeVisible();
-  await expect(page.getByText('Metadata inventory only.')).toBeVisible();
+  await expect(page.getByText('SHA-256 duplicate analysis.')).toBeVisible();
   const cookies = await page.context().cookies();
   const session = cookies.find(c => c.name === 'JSESSIONID');
   expect(session?.httpOnly).toBe(true); expect(session?.sameSite).toBe('Strict');
@@ -32,13 +32,13 @@ test('authenticated foundation uses the real API, separate CSRF cookie, and logo
     await expect(page.getByRole('heading',{name:'No sources configured'})).toBeVisible();
   }
   await page.getByRole('link', {name:'Scans',exact:true}).click();
-  await expect(page.getByRole('heading', {name:'New inventory'})).toBeVisible();
+  await expect(page.getByRole('heading', {name:'New scan'})).toBeVisible();
   expect((await page.request.get('/api/v1/scans')).status()).toBe(200);
   expect((await page.request.post('/api/v1/scans',{data:{name:'Unauthorized mutation',sourceIds:[]}})).status()).toBe(403);
   if (process.env['FNORD_EXPECT_MOUNT_FIXTURES'] === 'true') {
     await page.getByLabel('Scan name').fill('Disposable mounted inventory');
     await page.getByRole('checkbox').first().check();
-    await page.getByRole('button',{name:'Start inventory',exact:true}).click();
+    await page.getByRole('button',{name:'Start scan',exact:true}).click();
     await expect(page.getByRole('heading',{name:'Disposable mounted inventory'})).toBeVisible();
     await expect.poll(async () => {
       const id = page.url().split('/').pop();

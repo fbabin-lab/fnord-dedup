@@ -172,7 +172,7 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
                 if (count < 0) eof = true
                 else {
                     bytesRead = Math.addExact(bytesRead, (long)count)
-                    if (bytesRead > before.size) throw new SourceAccessException('CHANGED', 'The file grew during reading.')
+                    if (bytesRead > before.size) throw new SourceAccessException('CHANGED', 'The file grew during reading.', 0, count)
                 }
                 return count
             }

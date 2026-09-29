@@ -19,7 +19,7 @@ class InventoryService {
         if (!(body.name instanceof String) || ((String)body.name).isBlank() || ((String)body.name).length() > 200)
             throw new JobProblem(422,'INVALID_NAME','Enter a scan name of 1 to 200 characters.')
         if (body.getOrDefault('hashAlgorithm','SHA-256') != 'SHA-256' || body.getOrDefault('includeSignatureCandidates',false) != Boolean.FALSE || body.getOrDefault('textIndexingEnabled',false) != Boolean.FALSE)
-            throw new JobProblem(422,'UNSUPPORTED_OPTION','M1 inventories metadata only. SHA-256 analysis, signature candidates and text indexing are not available yet.')
+            throw new JobProblem(422,'UNSUPPORTED_OPTION','Only SHA-256 is supported. Signature candidates and text indexing are not available yet.')
         if (!(body.sourceIds instanceof List) || ((List)body.sourceIds).isEmpty() || ((List)body.sourceIds).size() > 100)
             throw new JobProblem(422,'INVALID_SOURCES','Select between 1 and 100 registered sources.')
         List<UUID> selected = new ArrayList<>()
@@ -53,8 +53,8 @@ class InventoryService {
                 definitions.add(source)
             }
             UUID scanId = UUID.randomUUID(), jobId = UUID.randomUUID()
-            store.jdbc.update('INSERT INTO scan(id,name,configuration_revision,options) VALUES (?,?,?,?::jsonb)',scanId,body.name,sources.revision,store.json([hashAlgorithm:'SHA-256',inventoryOnly:true,includeSignatureCandidates:false,textIndexingEnabled:false]))
-            store.jdbc.update("INSERT INTO job(id,scan_id,type,phase,state) VALUES (?,?,'INVENTORY','INVENTORY','QUEUED')",jobId,scanId)
+            store.jdbc.update('INSERT INTO scan(id,name,configuration_revision,options) VALUES (?,?,?,?::jsonb)',scanId,body.name,sources.revision,store.json([hashAlgorithm:'SHA-256',inventoryOnly:false,includeSignatureCandidates:false,textIndexingEnabled:false]))
+            store.jdbc.update("INSERT INTO job(id,scan_id,type,phase,state) VALUES (?,?,'SCAN','INVENTORY','QUEUED')",jobId,scanId)
             for (SourceDefinition source : definitions) {
                 String snapshot = store.json(source)
                 store.jdbc.update('''INSERT INTO source_root(id,source_instance_id,configuration_revision,snapshot) VALUES (?,?,?,?::jsonb)
@@ -65,7 +65,7 @@ class InventoryService {
             }
             store.event(jobId,'QUEUED',actor)
             store.jdbc.update('INSERT INTO audit_event(id,actor,action,correlation_id,details) VALUES (?,?,?,?,?::jsonb)',UUID.randomUUID(),actor,'SCAN_CREATED',UUID.fromString(correlationId),store.json([scanId:scanId,jobId:jobId]))
-            Map<String,Object> response = [scanId:scanId.toString(),jobId:jobId.toString(),inventoryOnly:true] as Map<String,Object>
+            Map<String,Object> response = [scanId:scanId.toString(),jobId:jobId.toString(),inventoryOnly:false] as Map<String,Object>
             store.jdbc.update('INSERT INTO idempotency_record(actor,endpoint,request_key,payload_hash,response) VALUES (?,?,?,?,?::jsonb)',actor,'/scans',requestKey,payloadHash,store.json(response))
             response
         }
@@ -95,6 +95,7 @@ class InventoryService {
             validatedVersion = ((Number)before.version).longValue()
             try { validateResume((UUID)before.scan_id) }
             catch (JobProblem problem) {
+                if (before.type != 'INVENTORY' && problem.code == 'SOURCE_CONFIGURATION_CHANGED') store.invalidateScanEvidence((UUID)before.scan_id,problem.code)
                 store.jdbc.update('UPDATE job SET block_code=? WHERE id=? AND version=?',problem.code,id,validatedVersion)
                 throw problem
             }
@@ -138,12 +139,14 @@ class InventoryService {
          currentPath:active?.display_path,blockCode:row.block_code,leaseSeconds:row.lease_seconds,heartbeatSeconds:row.heartbeat_seconds,
          discoveredEntries:row.discovered_entries.toString(),discoveredFiles:row.discovered_files.toString(),discoveredDirectories:row.discovered_directories.toString(),
          discoveredBytes:row.discovered_bytes.toString(),errorCount:row.error_count.toString(),skippedEntries:row.skipped_entries.toString(),
-         pendingWork:row.pending_work.toString(),completedWork:row.completed_work.toString(),totalKnown:false,
+         pendingWork:row.pending_work.toString(),completedWork:row.completed_work.toString(),totalKnown:row.phase != 'INVENTORY' && row.phase != 'CANDIDATE_SELECTION',
+         candidateFiles:row.candidate_files.toString(),candidateBytes:row.candidate_bytes.toString(),hashedFiles:row.hashed_files.toString(),reusedFiles:row.reused_files.toString(),
+         physicalBytesRead:row.physical_bytes_read.toString(),usefulBytesHashed:row.useful_bytes_hashed.toString(),
          waitingForIo:row.state in ['RUNNING','PAUSE_REQUESTED','CANCEL_REQUESTED'] && row.current_location_id != null &&
             ((java.util.Date)(row.checkpoint_at ?: row.started_at)).time < System.currentTimeMillis()-5000L] as Map<String,Object>
     }
     Map<String,Object> scan(UUID id) {
-        Map row = store.one('SELECT s.*,j.id AS job_id FROM scan s JOIN job j ON j.scan_id=s.id WHERE s.id=?',id)
+        Map row = store.one("SELECT s.*,j.id AS job_id FROM scan s JOIN job j ON j.scan_id=s.id AND j.type IN ('INVENTORY','SCAN') WHERE s.id=?",id)
         if (row == null) throw new JobProblem(404,'SCAN_NOT_FOUND','The scan does not exist.')
         List<Map<String,Object>> roots = new ArrayList<>()
         for (Map source : store.jdbc.queryForList('SELECT * FROM scan_source WHERE scan_id=? ORDER BY source_id',id)) {
@@ -152,7 +155,11 @@ class InventoryService {
                 rootLocationId:source.root_location_id,coverage:source.coverage] as Map<String,Object>)
         }
         [id:row.id,name:row.name,configurationRevision:row.configuration_revision,createdAt:time(row.created_at),
-         inventoryFrozenAt:time(row.inventory_frozen_at),inventoryOnly:true,analysisAvailable:false,job:job((UUID)row.job_id),sources:roots] as Map<String,Object>
+         inventoryFrozenAt:time(row.inventory_frozen_at),inventoryOnly:store.parse(row.options.toString()).inventoryOnly,analysisAvailable:row.current_analysis_id != null,
+         analysisId:row.current_analysis_id,evidenceRevision:row.evidence_revision.toString(),
+         activeHashJobs:store.jdbc.queryForList("SELECT id FROM job WHERE scan_id=? AND type='HASH' AND state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED') ORDER BY sequence LIMIT 10",id).collect { Map item -> job((UUID)item.id) },
+         latestJob:job((UUID)store.one('SELECT id FROM job WHERE scan_id=? ORDER BY sequence DESC LIMIT 1',id).id),
+         job:job((UUID)row.job_id),sources:roots] as Map<String,Object>
     }
     Map<String,Object> scans(String cursor, int limit) { list('scans',cursor,limit) }
     Map<String,Object> jobs(String cursor, int limit) { list('jobs',cursor,limit) }
@@ -198,7 +205,7 @@ class InventoryService {
             EXISTS(SELECT 1 FROM observation_validation v WHERE v.entry_id=e.id) AS unstable
             FROM scan_entry e JOIN file_location l ON l.id=e.location_id WHERE e.id=?''',id)
         if (row == null) throw new JobProblem(404,'OBSERVATION_NOT_FOUND','The observation does not exist.')
-        observationRow(row)
+        observationRow(row) + ([hash:HashService.evidence(store,id)] as Map<String,Object>)
     }
     private static Map<String,Object> observationRow(Map row) {
         [id:row.id,scanId:row.scan_id,locationId:row.location_id,parentLocationId:row.parent_id,sourceId:row.source_id,sourceInstanceId:row.source_instance_id,
@@ -211,7 +218,7 @@ class InventoryService {
          symlinkTargetBytesBase64:row.symlink_target == null ? null : Base64.encoder.encodeToString((byte[])row.symlink_target),
          discoveryStatus:row.discovery_status,directoryCoverage:row.directory_coverage,unstable:row.unstable,observedAt:time(row.observed_at)] as Map<String,Object>
     }
-    private Map<String,Object> page(String scope, String cursor, int limit, String cutoffSql, Object... args) {
+    Map<String,Object> page(String scope, String cursor, int limit, String cutoffSql, Object... args) {
         if (limit < 1 || limit > 500) throw new JobProblem(422,'INVALID_PAGE_SIZE','Page size must be between 1 and 500.')
         if (cursor == null || cursor.isEmpty()) return [after:0L,cutoff:store.jdbc.queryForObject(cutoffSql,Long,args)] as Map<String,Object>
         try {
@@ -224,7 +231,7 @@ class InventoryService {
         } catch (JobProblem e) { throw e }
         catch (Exception ignored) { throw new JobProblem(422,'INVALID_CURSOR','The page cursor is invalid.') }
     }
-    private String cursorFor(String scope, Object cutoff, Object after) {
+    String cursorFor(String scope, Object cutoff, Object after) {
         Base64.urlEncoder.withoutPadding().encodeToString(store.json([scope:scope,cutoff:cutoff.toString(),after:after.toString()]).getBytes(StandardCharsets.UTF_8))
     }
     static String time(Object value) { value == null ? null : ((java.sql.Timestamp)value).toInstant().toString() }

@@ -59,10 +59,16 @@ class InventoryWorker implements SmartLifecycle {
         WorkClaim claim = store.claim(owner,epoch)
         if (claim == null) { preparedJob = null; return }
         try {
+            if (claim.kind == 'SELECT_CANDIDATES') { new HashPipeline(store,sources).select(claim); return }
+            if (claim.kind == 'GROUP') { new AnalysisPipeline(store).run(claim); return }
             if (claim.configurationRevision != sources.revision) throw new JobProblem(409,'SOURCE_CONFIGURATION_CHANGED','Source configuration changed.')
             if (preparedJob != claim.jobId) { prepare(claim); preparedJob = claim.jobId }
-            inventory(claim)
-        } catch (JobProblem e) { store.block(claim,e.code); preparedJob = null }
+            if (claim.kind == 'HASH') new HashPipeline(store,sources).hash(claim,{ -> stopping } as java.util.function.BooleanSupplier)
+            else inventory(claim)
+        } catch (JobProblem e) {
+            if (claim.kind == 'HASH' && e.code == 'SOURCE_CONFIGURATION_CHANGED') store.invalidateScanEvidence(claim.scanId,e.code,claim)
+            store.block(claim,e.code); preparedJob = null
+        }
     }
     private void prepare(WorkClaim c) {
         sources.refresh()

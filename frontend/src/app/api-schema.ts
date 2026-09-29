@@ -112,7 +112,7 @@ export interface paths {
         /** @description Scan history, oldest first with a stable committed cutoff. */
         get: operations["scans"];
         put?: never;
-        /** @description Queue whole registered roots. At most ten unfinished jobs and five creations per actor per minute. Only metadata is inventoried in M1. */
+        /** @description Queue whole registered roots, inventory metadata, hash only repeated-size regular files, then publish duplicate analysis. At most ten unfinished jobs and five creations per actor per minute. */
         post: operations["createScan"];
         delete?: never;
         options?: never;
@@ -273,6 +273,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hash-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Explicit bounded selection in one frozen scan. Normal requests reuse accepted hashes without refreshing their timestamps; forceRehash reads anew. A conflicting fresh digest invalidates active evidence. Jobs use the same admission, control and lease rules as scans. */
+        post: operations["createHashJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/observations/{id}/hash-attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["hashAttempts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{id}/duplicate-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["duplicateGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/duplicate-groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["duplicateGroup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -289,7 +354,7 @@ export interface components {
             name: string;
             version: string;
             /** @constant */
-            milestone: "M1";
+            milestone: "M2";
             platform: string;
             /** @constant */
             sourcePolicy: "READ_ONLY";
@@ -297,7 +362,7 @@ export interface components {
             scanAvailable: true;
             configurationRevision: string;
             /** @constant */
-            inventoryOnly: true;
+            inventoryOnly: false;
         };
         SourceList: {
             configurationRevision: string;
@@ -351,18 +416,18 @@ export interface components {
             scanId: string;
             /** Format: uuid */
             jobId: string;
-            /** @constant */
-            inventoryOnly: true;
+            /** @description False for new M2 scans. Replaying a historical M1 idempotency key preserves its original true value. */
+            inventoryOnly: boolean;
         };
         Job: {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             scanId: string;
-            /** @constant */
-            type: "INVENTORY";
-            /** @constant */
-            phase: "INVENTORY";
+            /** @enum {string} */
+            type: "INVENTORY" | "SCAN" | "HASH";
+            /** @enum {string} */
+            phase: "INVENTORY" | "CANDIDATE_SELECTION" | "HASHING" | "ANALYSIS";
             /** @enum {string} */
             state: "QUEUED" | "RUNNING" | "PAUSE_REQUESTED" | "PAUSED" | "CANCEL_REQUESTED" | "CANCELLED" | "INTERRUPTED" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED";
             version: string;
@@ -394,9 +459,14 @@ export interface components {
             skippedEntries: string;
             pendingWork: string;
             completedWork: string;
-            /** @constant */
-            totalKnown: false;
+            totalKnown: boolean;
             waitingForIo: boolean;
+            candidateFiles: string;
+            candidateBytes: string;
+            hashedFiles: string;
+            reusedFiles: string;
+            physicalBytesRead: string;
+            usefulBytesHashed: string;
         };
         ScanSource: {
             /** Format: uuid */
@@ -418,12 +488,14 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             inventoryFrozenAt: string | null;
-            /** @constant */
-            inventoryOnly: true;
-            /** @constant */
-            analysisAvailable: false;
+            inventoryOnly: boolean;
+            analysisAvailable: boolean;
             job: components["schemas"]["Job"];
             sources: components["schemas"]["ScanSource"][];
+            analysisId: string | null;
+            evidenceRevision: string;
+            latestJob: components["schemas"]["Job"];
+            activeHashJobs: components["schemas"]["Job"][];
         };
         Observation: {
             /** Format: uuid */
@@ -474,6 +546,7 @@ export interface components {
             unstable: boolean;
             /** Format: date-time */
             observedAt: string;
+            hash?: components["schemas"]["HashEvidence"];
         };
         JobError: {
             id: string;
@@ -503,6 +576,94 @@ export interface components {
             /** Format: uuid */
             parentLocationId: string | null;
             displayPath: string;
+        };
+        HashAttempt: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            jobId: string;
+            /** @constant */
+            algorithm: "SHA-256";
+            digest: string | null;
+            bytesRead: string;
+            /** Format: date-time */
+            startedAt: string;
+            completedAt: string | null;
+            reasons: ("DUPLICATE_SIZE" | "MANUAL" | "FORCED_RECHECK")[];
+            /** @enum {string} */
+            outcome: "READING" | "ACCEPTED" | "FAILED" | "INTERRUPTED" | "STOPPED" | "CONFLICT";
+            errorCode: string | null;
+            errorDetail: string | null;
+            preFingerprint: {
+                [key: string]: unknown;
+            } | null;
+            postFingerprint: {
+                [key: string]: unknown;
+            } | null;
+        };
+        HashEvidence: {
+            /** @enum {string} */
+            status: "INELIGIBLE" | "STALE" | "ACCEPTED" | "PENDING" | "FAILED" | "NOT_REQUESTED_UNIQUE_SIZE" | "NOT_REQUESTED";
+            pending: boolean;
+            accepted: components["schemas"]["HashAttempt"] | null;
+            latestAttempt: components["schemas"]["HashAttempt"] | null;
+            invalidationCode: string | null;
+        };
+        HashRequest: {
+            /** Format: uuid */
+            scanId: string;
+            observationIds: string[];
+            /** @default false */
+            forceRehash: boolean;
+        };
+        HashCreated: {
+            /** Format: uuid */
+            scanId: string;
+            /** Format: uuid */
+            jobId: string;
+        };
+        HashAttemptPage: {
+            items: components["schemas"]["HashAttempt"][];
+            nextCursor: string | null;
+        };
+        DuplicateGroup: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            analysisId: string;
+            /** Format: uuid */
+            scanId: string;
+            sizeBytes: string;
+            /** @constant */
+            algorithm: "SHA-256";
+            digest: string;
+            pathCount: string;
+            objectCount: string | null;
+            /** @enum {string} */
+            identityStatus: "ALIASED_MOUNTS_UNCERTAIN" | "IDENTITY_UNKNOWN" | "HARD_LINKS_PRESENT" | "DISTINCT_OBJECTS";
+            /** @enum {string} */
+            evidenceLevel: "HASH_IDENTICAL" | "STALE";
+            sourceIds: string[];
+            pathLogicalBytes: string;
+            independentObjectLogicalBytes: string | null;
+            maximumDuplicateCopyLogicalBytes: string | null;
+            physicalSavingsBytes: null;
+        };
+        GroupPage: {
+            analysisId: string | null;
+            evidenceRevision: string;
+            /** @enum {string} */
+            status: "NOT_AVAILABLE" | "CURRENT" | "NEEDS_REBUILD";
+            items: components["schemas"]["DuplicateGroup"][];
+            nextCursor: string | null;
+        };
+        GroupDetail: {
+            group: components["schemas"]["DuplicateGroup"];
+            members: {
+                observation: components["schemas"]["Observation"];
+                hash: components["schemas"]["HashAttempt"];
+            }[];
+            nextCursor: string | null;
         };
     };
     responses: {
@@ -1019,6 +1180,147 @@ export interface operations {
             404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    createHashJob: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+                /** @description Retained at least 24 hours (currently indefinitely). Repeating the same normalized request returns its original response, even at capacity. */
+                "Idempotency-Key"?: components["parameters"]["Idempotency"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HashRequest"];
+            };
+        };
+        responses: {
+            /** @description Saved result */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HashCreated"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    hashAttempts: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HashAttemptPage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    duplicateGroups: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: number;
+                /** @description Pin the published revision while paging. Omitting it selects the current revision; a cursor from a different revision is rejected. */
+                analysisId?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupPage"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    duplicateGroup: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly committed rows. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Saved result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupDetail"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
         };
     };

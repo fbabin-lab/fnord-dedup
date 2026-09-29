@@ -9,11 +9,11 @@ const job: Job = {
   createdAt:'2026-09-28T12:00:00Z',startedAt:'2026-09-28T12:00:00Z',updatedAt:'2026-09-28T12:00:02Z',finishedAt:null,
   heartbeatAt:null,checkpointAt:null,currentSourceId:null,currentPath:null,blockCode:null,leaseSeconds:60,heartbeatSeconds:10,
   discoveredEntries:'90071992547409931',discoveredFiles:'90071992547409930',discoveredDirectories:'1',discoveredBytes:'99999999999999999999',
-  errorCount:'0',skippedEntries:'0',pendingWork:'1',completedWork:'0',totalKnown:false,waitingForIo:false
+  candidateFiles:'0',candidateBytes:'0',hashedFiles:'0',reusedFiles:'0',physicalBytesRead:'0',usefulBytesHashed:'0',errorCount:'0',skippedEntries:'0',pendingWork:'1',completedWork:'0',totalKnown:false,waitingForIo:false
 };
 const scan: Scan = {
   id:'scan',name:'<img src=x onerror=alert(1)>',configurationRevision:'a'.repeat(64),createdAt:job.createdAt,inventoryFrozenAt:null,inventoryOnly:true,analysisAvailable:false,
-  job,sources:[{sourceId:'source',sourceInstanceId:'instance',label:'Fixture',rootLocationId:'root',coverage:'PARTIAL'}]
+  analysisId:null,evidenceRevision:'0',activeHashJobs:[],latestJob:job,job,sources:[{sourceId:'source',sourceInstanceId:'instance',label:'Fixture',rootLocationId:'root',coverage:'PARTIAL'}]
 };
 
 afterEach(() => { TestBed.resetTestingModule(); vi.useRealTimers(); });

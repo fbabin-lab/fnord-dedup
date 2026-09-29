@@ -19,10 +19,11 @@ class InventoryBrowserFixture {
         @Bean @Primary SourceRegistry fixtureRegistry(InventoryStore store) {
             Path fixture = Files.createTempDirectory('fnord-browser-generated-')
             Files.createDirectories(fixture.resolve('nested/empty'))
-            1250.times { Files.writeString(fixture.resolve(String.format('file-%04d.txt',it)),'benign fixture') }
+            1250.times { Files.writeString(fixture.resolve(String.format('file-%04d.txt',it)),it<2 ? 'hello' : 'x'*(it+20)) }
             Files.writeString(fixture.resolve('<img src=x onerror=alert(1)>'),'inert name')
             Files.createSymbolicLink(fixture.resolve('outside-link'),Path.of('/etc/passwd'))
             def registry = new InventoryIntegrationTest.FixtureRegistry(store)
+            registry.allowBodyReads=true
             UUID id = registry.add(fixture)
             registry.definitions[id].label = 'Generated native fixture'
             Runtime.runtime.addShutdownHook(new Thread({

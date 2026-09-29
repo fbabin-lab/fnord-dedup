@@ -1,4 +1,87 @@
-# M1 verification — 2026-09-28
+# M2 verification — 2026-09-29
+
+Verified code commit: `91dc69daac11a58daf186d101d328eda2363185a`  
+Verified code tree: `a0fb6626df1f0a8487125ae8fb5763a1f60dac71`  
+Branch: `feature/m2-hashing-analysis`  
+Parent: M1 draft, `c61593f0581f1f9ae3c5a50f115c4c37f0120d2a`
+
+M2 implementation is ready for review, stacked on the unmerged M1 branch. It adds repeated-size SHA-256 hashing, explicit bounded manual/forced requests, durable attempts and controls, immutable duplicate analyses, and evidence/group UI. **The full M2 exit gate is not satisfied:** native PostgreSQL concurrency/durability, real process-kill recovery and Docker/read-only-mount acceptance remain unverified. Continuing feature implementation at the user's request does not imply deployment acceptance. No signature matching, text indexing, byte verification, review plans or exports are claimed.
+
+## Executed M2 checks
+
+Final checks ran September 28–29, 2026, against the code above. This record is a documentation-only follow-up commit.
+
+| Check | Result |
+|---|---|
+| Gradle unit/native suite | PASS: 16 tests; zero failures/skips. Existing Linux adapter and source-safety regressions included. |
+| PostgreSQL-engine integration suite | PASS in the PGlite harness: 32 passed; 2 native-only cases explicitly skipped. Seventeen M2 hash/analysis cases, nine legacy inventory cases, and six HTTP/security cases passed. |
+| Angular tests | PASS: 8 tests, zero failures/errors; final JUnit report confirms all four test files. Includes stale/unknown evidence display and pinned analysis pagination. |
+| Angular production build | PASS: 488.21 kB initial bundle, estimated transfer 114.58 kB. |
+| Locked OpenAPI generation/check | PASS: `npm run api:check`; generated TypeScript matches the staged contract. No runtime dependency pins changed. |
+| Playwright browser suite | PASS: 2 scenarios, production Angular bundle, real Spring HTTP API and real native worker on generated fixtures. |
+| Production JAR | PASS: ZIP/CRC valid; 41,482,113 bytes, 303 entries. Test fixture/registry classes absent. SHA-256 `c9926b03571ccbb1d2a7d7839aa3c3c4ffa1e1cdb9f00e647de870f934fc4569`. |
+| Repository review | Whitespace check, generated-contract equality, unchanged specification/license, and exact local/remote code-tree equality pass. No fixtures, credentials, dependencies or build artifacts are committed. |
+
+The browser created and paused/resumed a scan, closed its view, reconnected after completion, and browsed **1,255 committed observations**. Its fixture has two 5-byte `hello` copies and otherwise unique-size regular files. The UI showed the SHA-256 group, two independent objects and theoretical duplicate-copy bytes. The operator then explicitly requested a checksum for a 22-byte unique-size file; the real worker accepted it and the UI showed its timestamp, MANUAL provenance and attempt history. Visual inspection of progress/evidence screenshots and existing computed-style checks used the production CSP.
+
+An early run correctly required the foundation test's migration-count assertion to change from two to three. The first browser run exposed stale test expectations for M1 copy and a mistyped digest-display prefix; those were corrected, then both scenarios passed. A final review added immediate scan-wide staleness for a detected captured root/configuration mismatch and retained controls for all unfinished manual jobs, including older paused jobs. The corresponding regression tests passed. A final explicit Angular JUnit report was used because some captured console logs ended before the summary; no partial console output is counted as a test pass.
+
+## Commands and environment boundary
+
+The final backend run used the repository's Gradle wrapper with Java 21:
+
+```bash
+FNORD_TEST_SQL_HARNESS=pglite \
+SPRING_FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK=false \
+FNORD_TEST_DB_URL='jdbc:postgresql://127.0.0.1:55439/postgres?preferQueryMode=simple' \
+./gradlew test integrationTest bootJar --offline
+```
+
+Frontend checks ran in `frontend`:
+
+```bash
+npm test -- --watch=false --reporters=junit --output-file='<scratch report path>'
+npm run build
+npm run api:check
+```
+
+The local runner supplied build-proxy settings and the existing JDK. The SQL harness remains test-only PGlite 0.5.8, PostgreSQL 18.3 and pglite-socket 0.2.11. Simple JDBC mode, Flyway transactional-lock override and explicit test-schema initialization address that harness's single-engine limitations; they are not deployment settings. Production targets the pinned native PostgreSQL 18.6 image. Groovy 5.0.8, Spring Boot 4.1.1, Gradle 8.14.3, JNA 5.18.1, Angular/Material 22.0.7 and the committed dependency locks are unchanged.
+
+Browser execution used the test-only generated fixture server and temporary same-origin frontend proxy under the production CSP:
+
+```bash
+FNORD_TEST_FIXTURE_MODE=generated-only ./gradlew inventoryBrowserFixture --offline
+FNORD_EXPECT_NATIVE_FIXTURES=true FNORD_TEST_URL=http://127.0.0.1:18088 \
+FNORD_TEST_PASSWORD='<disposable test password>' \
+FNORD_CHROMIUM_EXECUTABLE='<Chromium 153.0.8010.0 executable>' npm run e2e
+```
+
+Generated fixtures use a test-only mount-guard/registry seam; actual metadata, raw-byte opening and reads use the Linux native adapter. Mutation and corrupted-read tests concern only disposable fixture data. No production source-writing capability or mount-validation bypass was added. These tests do not prove Docker bind-mount protection, independent PostgreSQL sessions, WAL durability or crash recovery on a persistent service.
+
+## M2 acceptance evidence
+
+| Cases | Evidence and limits |
+|---|---|
+| AT-19 | Repeated-size selection excludes unique-size files and a sole empty file. A 503-empty-file fixture crosses candidate-selection batches without duplicate tasks. Legacy inventory tests still reject every content open. |
+| AT-20–22 | Exact known `hello`/empty SHA-256, complete bytes/times/fingerprints and 32-byte storage; same-size unequal content stays separate; renamed, empty and cross-root copies group normally. |
+| AT-23 | Unique-size manual job, idempotent replay/conflict, retained accepted timestamp on reuse and zero extra reads. Mixed-scan, duplicate, oversized and arbitrary-path selections are rejected. Browser proves manual unique-size hashing end to end. |
+| AT-24 | Pause at the first and third 1 MiB boundaries, discard partial digests, restart at zero, preserve useful counts and count physical rereads. Mid-read cancellation remains terminal. Actual blocked-network-I/O and forced process-kill timing remain unverified. |
+| AT-25 | Generated files modified, truncated, grown, replaced or removed during native reads never accept a wrong-observation digest. Existing adapter tests cover pre-open replacement/fingerprint rejection. Original observation sizes remain unchanged. |
+| AT-26 | Injected forced digest disagreement invalidates the active pointer and old published group immediately; the conflicting attempt stores no digest. Rebuild excludes that observation while preserving old attempts/revisions. Captured configuration changes invalidate the scan evidence window without a tree-wide rewrite. |
+| AT-27 | Second scan independently rereads repeated-size paths; no cross-scan accepted cache or duplicate-copy counting. A unique-size manual hash in the first scan is absent in the second. |
+| AT-28 | Paused analysis remains unpublished. A manual job completes while the earlier build is paused; resuming abandons its outdated capture and publishes a consistent revision. A 503-member group pauses after 500 member assignments and publishes only after the remaining batch. These are deterministic interleavings, not certification of independent native sessions or process death during publication. |
+| AT-18 | Expired hash claims cannot commit; interrupted attempts and explicit resume are covered. Existing sequential inventory fences/rollback pass. Two native-only concurrency/connection-loss cases remain skipped. |
+| M2 object accounting | Hard-link paths are independently hashed; a hard-link-only group reports U=1 and zero duplicate-copy bytes. Unknown filesystem identity yields null object counts/estimates. Real bind aliases, allocation/extents and full M6 planning gates remain unverified/not implemented. |
+
+The outstanding runtime gates remain blockers for deployment acceptance. On a Docker-capable Linux/amd64 host, run `./scripts/test-all` with harness overrides unset, then `./scripts/smoke-test`. Execute process-kill/restart against persistent native PostgreSQL, actual nested-mount/rebinding and non-root permission cases, plus the M0/M1 deployment checks below. No throughput, million-row scale or physical-reclamation benchmark is claimed.
+
+Work stops at this reviewable **M2 implementation milestone**. The next feature milestone is **M3: metadata explorer/search, memos and tags**, after resolving any defects found by the outstanding gates. Nothing was merged or deployed.
+
+---
+
+The following records are historical and describe the earlier M1/M0 code, not M2 capabilities.
+
+# Historical M1 verification — 2026-09-28
 
 Verified code commit: `63a3c2d7eeafefcea6dc7e50165b11751bdefe89`  
 Verified code tree: `8be056fbbe16edf4e6c15a0558a6b3e018ac1c17`  

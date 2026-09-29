@@ -10,7 +10,7 @@ import java.time.Instant
 @Service
 class SearchService {
     static final Map<String,String> SORTS=[name:'e.name_bytes',path:'e.relative_path_bytes',size:'e.size_bytes',mtime:'(e.mtime_seconds::numeric*1000000000+e.mtime_nanos)',checksumTime:'e.hash_completed_at'].asImmutable()
-    static final List<String> FILTERS=['nameContains','pathContains','nameExact','pathExact','nameBytesBase64','pathBytesBase64','extension','sourceId','subtreeLocationId','parentLocationId','entryType','minBytes','maxBytes','mtimeFrom','mtimeTo','checksum','checksumPrefix','hashStatus','duplicateState','duplicateGroupId','tagIds','tagMode','memoContains','reviewState','hasError','stale','annotationsNeedReview'].asImmutable()
+    static final List<String> FILTERS=['nameContains','pathContains','nameExact','pathExact','nameBytesBase64','pathBytesBase64','extension','sourceId','subtreeLocationId','parentLocationId','entryType','minBytes','maxBytes','mtimeFrom','mtimeTo','checksum','checksumPrefix','hashStatus','duplicateState','duplicateGroupId','tagIds','tagMode','memoContains','reviewState','hasError','stale','annotationsNeedReview','signatureId','signatureTagId','signatureStatus','signatureCheckStatus','tagScope'].asImmutable()
     final InventoryStore store
     final AnnotationService annotations
     SearchService(InventoryStore store,AnnotationService annotations) { this.store=store; this.annotations=annotations }
@@ -21,12 +21,15 @@ class SearchService {
         Map<String,Object> filters=new TreeMap<>()
         for (Object keyObject : raw.keySet()) {
             String key=keyObject.toString(); Object value=raw.get(key)
-            if (key in ['sourceId','subtreeLocationId','parentLocationId','duplicateGroupId']) filters.put(key,Values.id(value).toString())
+            if (key in ['sourceId','subtreeLocationId','parentLocationId','duplicateGroupId','signatureId','signatureTagId']) filters.put(key,Values.id(value).toString())
             else if (key in ['minBytes','maxBytes']) filters.put(key,Long.toString(Values.decimal(value)))
             else if (key in ['hasError','stale','annotationsNeedReview']) {
                 if (!(value instanceof Boolean)) Values.invalid('Flag filters must be booleans.')
                 filters.put(key,value)
             } else if (key=='tagIds') filters.put(key,Values.ids(value).collect { UUID id -> id.toString() })
+            else if (key=='signatureStatus') filters.put(key,Values.choice(value,['MATCHED','NO_MATCH_IN_CHECKED_CATALOG','UNDETERMINED']))
+            else if (key=='signatureCheckStatus') filters.put(key,Values.choice(value,['CHECKED_HASH','EXCLUDED_BY_SIZE','HASH_REQUIRED','STALE','READ_ERROR','CATALOG_NOT_CHECKED']))
+            else if (key=='tagScope') filters.put(key,Values.choice(value,['MANUAL','EFFECTIVE']))
             else if (key=='tagMode') filters.put(key,Values.choice(value,['ANY','ALL']))
             else if (key=='entryType') filters.put(key,Values.choice(value,['REGULAR','DIRECTORY','SYMLINK','SPECIAL','UNKNOWN']))
             else if (key=='reviewState') filters.put(key,Values.choice(value,AnnotationService.STATES))
@@ -59,7 +62,7 @@ class SearchService {
         Map clock=store.one('SELECT revision FROM annotation_clock WHERE id=1 FOR SHARE')
         Map scan=store.one('SELECT * FROM scan WHERE id=? FOR SHARE',scanId)
         if (scan==null) throw new JobProblem(404,'SCAN_NOT_FOUND','The scan does not exist.')
-        Map current=[queries:store.one('SELECT revision FROM search_clock WHERE id=1').revision.toString(),scan:scanId.toString(),query:Values.hash(store.json(query)),evidence:scan.evidence_revision.toString(),revision:scan.query_revision.toString(),annotations:clock.revision.toString(),analysis:scan.current_analysis_id?.toString()]
+        Map current=[signatures:scan.current_signature_run_id?.toString(),catalog:store.one('SELECT revision FROM signature_clock WHERE id=1').revision.toString(),queries:store.one('SELECT revision FROM search_clock WHERE id=1').revision.toString(),scan:scanId.toString(),query:Values.hash(store.json(query)),evidence:scan.evidence_revision.toString(),revision:scan.query_revision.toString(),annotations:clock.revision.toString(),analysis:scan.current_analysis_id?.toString()]
         if (token!=null) {
             Map previous=decode(token)
             for (Object key : current.keySet()) if (previous.get(key)!=current.get(key)) throw new JobProblem(409,'CURSOR_STALE','The query or its evidence/annotations changed. Refresh the result list.')
@@ -70,7 +73,7 @@ class SearchService {
         current+[cutoff:store.jdbc.queryForObject('SELECT coalesce(max(sequence),0) FROM scan_entry WHERE scan_id=?',Long,scanId).toString()]
     }
     void unchanged(Map context) {
-        if (store.one('SELECT revision FROM search_clock WHERE id=1').revision.toString()!=context.queries)
+        if (store.one('SELECT revision FROM search_clock WHERE id=1').revision.toString()!=context.queries || store.one('SELECT revision FROM signature_clock WHERE id=1').revision.toString()!=context.catalog)
             throw new JobProblem(409,'CURSOR_STALE','Evidence changed while reading this view. Refresh the result list.')
     }
     String token(Map context) { Base64.urlEncoder.withoutPadding().encodeToString(store.json(context).getBytes(StandardCharsets.UTF_8)) }
@@ -103,7 +106,7 @@ class SearchService {
     Map result(Map row) {
         InventoryService.observationRow(row)+[hashStatus:row.hash_status,checksum:row.hash_status=='ACCEPTED' ? HexFormat.of().formatHex((byte[])row.digest) : null,
             checksumCompletedAt:InventoryService.time(row.hash_completed_at),duplicateState:row.duplicate_state,duplicateGroupId:row.duplicate_group_id,
-            stale:row.stale,hasError:row.has_error,annotation:annotations.summary(row)]
+            signatureStatus:row.signature_status,signatureCheckStatus:row.signature_check_status,signatureCatalogRevision:row.signature_catalog_revision?.toString(),stale:row.stale,hasError:row.has_error,annotation:annotations.summary(row)]
     }
     List<Map<String,Object>> rows(UUID scanId,Map query,Map context,int limit,List<UUID> ids=null) {
         Map f=(Map)query.filters
@@ -137,10 +140,22 @@ class SearchService {
             conditions.add("e.hash_status='ACCEPTED' AND encode(e.digest,'hex')"+(key=='checksum' ? '=?' : ' LIKE ?'))
             args.add(f.get(key).toString()+(key=='checksum' ? '' : '%'))
         }
+        for (String key : ['signatureStatus','signatureCheckStatus']) if (f.containsKey(key)) {
+            conditions.add((key=='signatureStatus' ? 'sc.match_status' : 'sc.check_status')+'=?'); args.add(f.get(key))
+        }
+        if (f.signatureId!=null || f.signatureTagId!=null) {
+            String condition="sc.match_status='MATCHED' AND EXISTS(SELECT 1 FROM signature_match sm"
+            if (f.signatureTagId!=null) condition+=' JOIN signature_tag st ON st.signature_id=sm.signature_id AND st.revision=sm.signature_revision'
+            condition+=' WHERE sm.run_id=sc.run_id AND sm.entry_id=e.id'
+            if (f.signatureId!=null) { condition+=' AND sm.signature_id=?'; args.add(Values.id(f.signatureId)) }
+            if (f.signatureTagId!=null) { condition+=' AND st.tag_id=?'; args.add(Values.id(f.signatureTagId)) }
+            conditions.add(condition+')')
+        }
         List tagIds=(List)(f.tagIds ?: [])
         if (!tagIds.isEmpty()) {
             String placeholders=Collections.nCopies(tagIds.size(),'?').join(',')
-            conditions.add('(SELECT count(*) FROM file_annotation_tag nt WHERE nt.location_id=e.location_id AND nt.tag_id IN ('+placeholders+'))'+(f.tagMode=='ALL' ? '='+tagIds.size() : '>0'))
+            String tagRelation=f.tagScope=='EFFECTIVE' ? "(SELECT tag_id FROM file_annotation_tag WHERE location_id=e.location_id UNION SELECT st.tag_id FROM signature_match sm JOIN signature_tag st ON st.signature_id=sm.signature_id AND st.revision=sm.signature_revision WHERE sm.run_id=sc.run_id AND sm.entry_id=e.id AND sc.match_status='MATCHED')" : '(SELECT tag_id FROM file_annotation_tag WHERE location_id=e.location_id)'
+            conditions.add('(SELECT count(*) FROM '+tagRelation+' nt WHERE nt.tag_id IN ('+placeholders+'))'+(f.tagMode=='ALL' ? '='+tagIds.size() : '>0'))
             for (Object id : tagIds) args.add(Values.id(id))
         }
         if (ids!=null) {
@@ -159,7 +174,7 @@ class SearchService {
             }
         }
         args.add(limit)
-        store.jdbc.queryForList(cte+'SELECT e.* FROM observation_search e WHERE '+conditions.join(' AND ')+' ORDER BY '+sort+' '+direction+' NULLS LAST,e.id '+direction+' LIMIT ?',args.toArray())
+        store.jdbc.queryForList(cte+'SELECT e.*,sc.match_status AS signature_status,sc.check_status AS signature_check_status,sc.catalog_revision AS signature_catalog_revision FROM observation_search e JOIN signature_coverage sc ON sc.entry_id=e.id WHERE '+conditions.join(' AND ')+' ORDER BY '+sort+' '+direction+' NULLS LAST,e.id '+direction+' LIMIT ?',args.toArray())
     }
     Map directory(UUID scan,UUID location) {
         Map parent=store.one("SELECT l.id,l.display_path,e.directory_coverage FROM file_location l JOIN scan_entry e ON e.location_id=l.id WHERE e.scan_id=? AND l.id=? AND e.entry_type='DIRECTORY'",scan,location)

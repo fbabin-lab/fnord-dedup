@@ -41,7 +41,7 @@ class HashService {
                 return store.parse((String)previous.response)
             }
             if (store.jdbc.queryForObject("SELECT count(*) FROM job WHERE state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED')",Long)>=10L ||
-                store.jdbc.queryForObject("SELECT count(*) FROM idempotency_record WHERE actor=? AND endpoint IN ('/scans','/hash-jobs') AND created_at>clock_timestamp()-interval '1 minute'",Long,actor)>=5L)
+                store.jdbc.queryForObject("SELECT count(*) FROM idempotency_record WHERE actor=? AND endpoint IN ('/scans','/hash-jobs','/signature-check-jobs') AND created_at>clock_timestamp()-interval '1 minute'",Long,actor)>=5L)
                 throw new JobProblem(429,'JOB_CAPACITY','The job queue or creation rate limit has been reached. Retry later.')
             if (selectionId!=null) store.one('SELECT id FROM annotation_clock WHERE id=1 FOR SHARE')
             Map scan=store.one('SELECT * FROM scan WHERE id=? FOR UPDATE',scanId)

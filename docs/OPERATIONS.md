@@ -1,4 +1,4 @@
-# Operations — M3 explorer and location annotations
+# Operations — M4 signature catalog and coverage
 
 This milestone inventories metadata, hashes repeated-size regular files with SHA-256, and publishes duplicate analysis through the Linux read-only adapter. It stores observations, attempts, revisions and job controls in PostgreSQL. Unique-size hashing requires an explicit manual request. Historical M1 scans remain inventory-only. There is no browser command for opening an arbitrary file.
 
@@ -31,7 +31,7 @@ cp deploy/application.example.yml deploy/application.yml
 
 Edit `deploy/.env` to set `FNORD_SOURCE_ARCHIVE` to an existing absolute host directory. Keep the bind's `read_only: true`, `create_host_path: false`, and private propagation. In `application.yml`, give each source a stable UUID and a stable backing-dataset `source-instance-id`. Generate new UUIDs with `python3 -c 'import uuid; print(uuid.uuid4())'`. Preserve both across normal restarts; assign a new source instance when replacing the backing dataset. Do not reuse the example identities for unrelated datasets.
 
-Repeat **both** the bind declaration and registry entry for additional sources. The UI cannot create mounts. The optional host-export prefix is an operator-supplied mapping for later export milestones; M3 performs no exports. An invalid/missing path is not automatically created. Source configuration is snapshotted in PostgreSQL by SHA-256 configuration revision; this hash is application configuration metadata, not a source-file hash.
+Repeat **both** the bind declaration and registry entry for additional sources. The UI cannot create mounts. The optional host-export prefix is an operator-supplied mapping for later export milestones; M4 catalog exports contain fingerprints/metadata and do not use host path mappings. An invalid/missing path is not automatically created. Source configuration is snapshotted in PostgreSQL by SHA-256 configuration revision; this hash is application configuration metadata, not a source-file hash.
 
 ```bash
 ./scripts/preflight
@@ -85,7 +85,7 @@ umask 077
 ./scripts/fnord up -d --wait
 ```
 
-M3 has no export artifacts. Later milestones must back up the artifact volume consistently with the database. Preserve private source configuration and identities separately from the dump. Restore only into a new isolated stack/database: after initializing it, feed the dump to `pg_restore -U fnord -d fnord --clean --if-exists` via `scripts/fnord exec -T postgres`. Ensure the isolated stack has its own project name, ports and volumes; do not point it at live writable sources. Backup/restore is documented but not exercised by the implementation environment.
+M4 signature catalog artifacts and staging chunks live in PostgreSQL and are included in its consistent backup. M7 file-report artifacts will additionally require the artifact volume to be backed up consistently. Preserve private source configuration and identities separately from the dump. Restore only into a new isolated stack/database: after initializing it, feed the dump to `pg_restore -U fnord -d fnord --clean --if-exists` via `scripts/fnord exec -T postgres`. Ensure the isolated stack has its own project name, ports and volumes; do not point it at live writable sources. Backup/restore is documented but not exercised by the implementation environment.
 
 Images and application dependencies are pinned. For updates, back up first, review migrations, build the new revision, then recreate services with `up -d --build --wait`. Flyway migrations are forward-only. A code rollback may require restoring a matching pre-upgrade database; do not modify an applied migration or reuse a PostgreSQL data volume across incompatible major versions.
 
@@ -125,7 +125,7 @@ Open an observation to **Calculate checksum**, including a unique-size file. An 
 
 Duplicate groups are published only after all capture/build/member batches finish. Group pages pin that immutable revision, and show `STALE` immediately when captured evidence is invalidated. A later manual job publishes a new analysis. Abandoned/interrupted builds are retained for investigation and are never current. M3 does not purge history automatically; monitor PostgreSQL growth.
 
-Object counts are conservative. Unknown identity and repeated mount views produce no exact object-level estimate. The displayed duplicate-copy byte measure is theoretical; actual physical savings remain unknown. Byte comparison and review plans belong to M6. Signature candidates and text indexing are still rejected when enabled; those features remain M4/M5 requirements.
+Object counts are conservative. Unknown identity and repeated mount views produce no exact object-level estimate. The displayed duplicate-copy byte measure is theoretical; actual physical savings remain unknown. Byte comparison and review plans belong to M6. Signature candidates are available only with explicit consent as described below. Text indexing is still rejected when enabled and remains the M5 requirement.
 
 
 ## Explorer, notes and frozen review
@@ -145,3 +145,31 @@ When two views edit the same notes, a stale save returns a conflict and leaves t
 Selections belong to the operator, expire after 24 hours, and remain in history. Each annotation selection applies once; request retries use the same idempotency key. **Calculate frozen checksums** explicitly authorizes reads for that frozen selection of eligible regular files, including unique-size observations. Follow the returned job from the scan progress view for pause/resume/cancel. Tagging and query operations never open source files.
 
 M3 adds forward-only Flyway migration V4. It does not modify V1–V3 or the source registry. The new views query saved PostgreSQL records; the application-level selection limit is 500, tree display limit is 1,000 directories, and breadcrumb limit is 256 ancestors. A single short annotation-clock lock serializes metadata edits; million-row query scale and independent native PostgreSQL concurrency remain acceptance gates. No automatic selection/audit/history purge is implemented; monitor database growth.
+
+
+## M4 signature operations and limits
+
+M4 adds forward-only Flyway V5, preserving V1–V4 and the native read-only adapter. Catalog records are append-only revisions. Disabling a signature creates a revision; historical matches, manual notes and independently assigned tags stay intact. Shared tag renames do not rewrite signature history; a later signature edit captures current tag labels while retaining stable tag IDs.
+
+Use Signatures to create/edit records, stage JSON/CSV, inspect every validation error and explicitly apply. For create-from-observation, follow the link in file details. If no accepted checksum exists, explicitly calculate it, follow its job, reload evidence and continue. No signature creation reads a source silently. The REQUIRED_EXACT filename option intentionally excludes renamed copies.
+
+New scans leave **Include known-signature size candidates** unchecked. Enabling it captures the catalog size set at scan creation and hashes the union with ordinary repeated-size candidates; a task in both sets has both reasons and only one stream. New catalog edits do not expand a scan's consent. For an existing frozen inventory, use **Preview signature candidate reads**, inspect exact files/bytes, then **Authorize reads and check signatures**. Changed catalog/evidence invalidates the preview. Matching jobs and source-read jobs are distinct; all follow-up controls appear in scan progress.
+
+After a catalog change, its persisted revision is the durable rematch request. The scheduler coalesces unstarted revisions and processes existing eligible scans one at a time, preserving any already-running captured revision. Read-free rematches can resume with sources offline. Accepted-hash invalidation hides active findings immediately; a current catalog flag indicates whether newer rules still await rematching. Cancelling a rematch leaves the previous published run available; a later edit, successful evidence change, or explicit check can schedule another run. No result means the file is safe or suitable for automatic removal.
+
+Configuration under `fnord.signatures`:
+
+```yaml
+fnord:
+  signatures:
+    import-bytes: 1048576
+    import-rows: 2000
+    export-bytes: 16777216
+    export-quota-bytes: 268435456
+```
+
+The backend validates bounds (import at most 16 MiB/10,000 rows; one export at most 64 MiB). Nginx also defaults to a 1 MiB request body; deliberately update its `client_max_body_size` if raising the backend import limit. Dry runs use raw UTF-8 request bodies and never enter source directories. Twenty unexpired/unapplied imports per actor can be staged; invalid rows must be corrected and restaged. Expired rows remain historical but cannot apply. Catalog exports reserve the full configured artifact cap before queueing, so defaults permit at most 16 retained ready exports. Failed/cancelled jobs release their reservation and remove only their own database chunks. Ready artifacts, catalog revisions, imports and audit/history have no automatic purge; monitor database disk growth and explicitly plan retention before increasing quotas. No operator-source cleanup is involved.
+
+Exports are immutable artifacts of a specified catalog revision. JSON preserves metadata; CSV is neutralized spreadsheet display data and may alter textual values. Both retain exact raw basename identity, with the documented reversible CSV marker for base64 beginning `+`. Exports run in the fenced scheduler as bounded database transactions; worker restarts replay only uncommitted chunks. Only READY artifacts download with their stored SHA-256/counts. Their ID is retained in the browser URL so the operator can reopen status after navigating away. Artifact download requires the owning authenticated actor.
+
+Concurrency, WAL durability, actual process-kill recovery and Docker mount gates still require the native deployment acceptance environment. The available PGlite harness tests SQL/transaction/checkpoint behavior but does not certify those operating-system/process boundaries.

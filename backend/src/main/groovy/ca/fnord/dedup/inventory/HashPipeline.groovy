@@ -27,9 +27,17 @@ class HashPipeline {
                 for (Map row : rows) store.jdbc.update('INSERT INTO candidate_size(scan_id,size_bytes,path_count) VALUES (?,?,?) ON CONFLICT DO NOTHING',c.scanId,row.size_bytes,row.paths)
                 save(c,rows.isEmpty() ? [stage:'ENTRIES',after:'0'] : [stage:'SIZES',after:rows.getLast().size_bytes.toString()])
             } else {
-                List<Map<String,Object>> rows = store.jdbc.queryForList('''SELECT e.* FROM scan_entry e JOIN candidate_size cs ON cs.scan_id=e.scan_id AND cs.size_bytes=e.size_bytes
-                    WHERE e.scan_id=? AND e.sequence>? AND '''+ELIGIBLE+' ORDER BY e.sequence LIMIT 500',c.scanId,Long.parseLong(p.after.toString()))
-                for (Map row : rows) addHash(c.jobId,row,false,['DUPLICATE_SIZE'])
+                List<Map<String,Object>> rows = store.jdbc.queryForList('''SELECT e.*,cs.size_bytes IS NOT NULL AS duplicate_candidate,
+                    (s.options->>'includeSignatureCandidates'='true' AND EXISTS(SELECT 1 FROM signatures_at(s.signature_catalog_revision) r WHERE r.enabled AND r.size_bytes=e.size_bytes)) AS signature_candidate
+                    FROM scan_entry e JOIN scan s ON s.id=e.scan_id LEFT JOIN candidate_size cs ON cs.scan_id=e.scan_id AND cs.size_bytes=e.size_bytes
+                    WHERE e.scan_id=? AND e.sequence>? AND (cs.size_bytes IS NOT NULL OR (s.options->>'includeSignatureCandidates'='true'
+                        AND EXISTS(SELECT 1 FROM signatures_at(s.signature_catalog_revision) r WHERE r.enabled AND r.size_bytes=e.size_bytes))) AND '''+ELIGIBLE+' ORDER BY e.sequence LIMIT 500',c.scanId,Long.parseLong(p.after.toString()))
+                for (Map row : rows) {
+                    List<String> reasons=new ArrayList<>()
+                    if (row.duplicate_candidate==Boolean.TRUE) reasons.add('DUPLICATE_SIZE')
+                    if (row.signature_candidate==Boolean.TRUE) reasons.add('SIGNATURE_SIZE')
+                    addHash(c.jobId,row,false,reasons)
+                }
                 if (rows.isEmpty()) {
                     store.jdbc.update('UPDATE scan SET candidates_frozen_at=clock_timestamp() WHERE id=?',c.scanId)
                     store.jdbc.update("UPDATE job SET phase='HASHING' WHERE id=?",c.jobId)

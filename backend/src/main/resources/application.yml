@@ -44,5 +44,10 @@ fnord:
   security:
     username: operator
     secure-cookies: ${FNORD_SECURE_COOKIES:false}
+  signatures:
+    import-bytes: 1048576
+    import-rows: 2000
+    export-bytes: 16777216
+    export-quota-bytes: 268435456
   sources: []
   artifact-directory: /var/lib/fnord/artifacts

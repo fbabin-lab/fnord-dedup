@@ -126,7 +126,7 @@ class InventoryIntegrationTest {
         assertEquals('IDEMPOTENCY_CONFLICT',assertThrows(JobProblem) {
             service.create([name:'Different',sourceIds:[sourceId.toString()]],'repeat','operator',correlation)
         }.code)
-        for (Map option : [[textIndexingEnabled:true],[includeSignatureCandidates:true],[hashAlgorithm:'SHA-1'],[containerPath:'/etc']]) {
+        for (Map option : [[textIndexingEnabled:true],[includeSignatureCandidates:"true"],[hashAlgorithm:'SHA-1'],[containerPath:'/etc']]) {
             assertEquals('UNSUPPORTED_OPTION',assertThrows(JobProblem) {
                 service.create([name:'Invalid',sourceIds:[sourceId.toString()]]+option,UUID.randomUUID().toString(),'operator',correlation)
             }.code)

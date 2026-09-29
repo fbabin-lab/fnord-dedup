@@ -57,9 +57,9 @@ class FoundationIntegrationTest {
     }
 
     @Test @Order(1) void schemaAndAnonymousAccess() {
-        assertEquals(4,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
+        assertEquals(5,jdbc.queryForObject('SELECT count(*) FROM flyway_schema_history WHERE success',Integer))
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM source_configuration',Integer))
-        for (String path : ['/api/v1/sources','/api/v1/system/info','/api/v1/scans','/api/v1/observations/anything','/api/v1/exports/anything/download','/api/v1/tags','/api/v1/locations/anything/annotation','/api/v1/selections/anything'])
+        for (String path : ['/api/v1/sources','/api/v1/system/info','/api/v1/scans','/api/v1/observations/anything','/api/v1/exports/anything/download','/api/v1/tags','/api/v1/locations/anything/annotation','/api/v1/selections/anything','/api/v1/signatures','/api/v1/signature-imports/anything','/api/v1/signature-exports/anything/download'])
             mvc.perform(get(path)).andExpect(status().isUnauthorized()).andExpect(jsonPath('$.code').value('AUTHENTICATION_REQUIRED'))
         mvc.perform(get('/api/v1/session')).andExpect(status().isOk()).andExpect(jsonPath('$.authenticated').value(false))
         mvc.perform(get('/api/v1/system/health')).andExpect(status().isOk()).andExpect(jsonPath('$.status').value('UP'))
@@ -132,6 +132,20 @@ class FoundationIntegrationTest {
         mvc.perform(post('/api/v1/annotation-batches').with(user('operator')).contentType('application/json').content('{}')).andExpect(status().isForbidden())
         mvc.perform(post('/api/v1/tags').with(user('operator')).with(token()).contentType('application/json').content('{"label":"HTTP fixture"}')).andExpect(status().isOk()).andExpect(jsonPath('$.version').value('1'))
         mvc.perform(post('/api/v1/scans/'+id+'/files/search').with(user('operator')).with(token()).contentType('application/json').content('{"filters":{"unknown":"x"}}')).andExpect(status().isUnprocessableEntity()).andExpect(jsonPath('$.code').value('INVALID_REQUEST'))
+    }
+
+    @Test @Order(8) void signatureMutationsRequireCsrfAndUploadsRemainStagingOnly() {
+        for (String path : ['/api/v1/signatures','/api/v1/signature-imports?format=JSON','/api/v1/signature-check-jobs','/api/v1/signature-exports'])
+            mvc.perform(post(path).with(user('operator')).contentType('application/json').content('{}')).andExpect(status().isForbidden())
+        mvc.perform(get('/api/v1/signature-limits').with(user('operator'))).andExpect(status().isOk()).andExpect(jsonPath('$.importBytes').value(1048576))
+        mvc.perform(post('/api/v1/signature-imports?format=JSON').with(user('operator')).with(token()).contentType('application/octet-stream')
+            .content('{"schemaVersion":1,"signatures":[{"name":"Bad","algorithm":"SHA-1","sizeBytes":"5","checksum":"bad"}]}'))
+            .andExpect(status().isOk()).andExpect(jsonPath('$.state').value('INVALID')).andExpect(jsonPath('$.errorCount').value(1))
+        assertEquals(0,jdbc.queryForObject('SELECT count(*) FROM signature',Integer))
+        mvc.perform(post('/api/v1/signature-imports?format=JSON').with(user('operator')).with(token()).contentType('application/octet-stream').content(new byte[1048577]))
+            .andExpect(status().isContentTooLarge()).andExpect(jsonPath('$.code').value('IMPORT_TOO_LARGE'))
+        mvc.perform(get('/api/v1/signature-exports/'+UUID.randomUUID()+'/download').with(user('operator')))
+            .andExpect(status().isNotFound()).andExpect(jsonPath('$.code').value('EXPORT_NOT_FOUND'))
     }
 
 }

@@ -2,6 +2,8 @@ import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { DatePipe } from '@angular/common';
 import { MatButtonModule } from '@angular/material/button';
+import { SignatureCheck } from './signature-check';
+import { SignatureCoverage } from './signature-coverage';
 import { DuplicateGroups } from './duplicate-groups';
 import { Api, ChildrenPage, ErrorPage, Job, Observation, Scan, HashAttemptPage, errorMessage } from './api';
 
@@ -13,7 +15,7 @@ export function averageRate(job: Job): string | null {
 }
 
 @Component({
-  selector: 'app-scan-detail', imports: [RouterLink, DatePipe, MatButtonModule, DuplicateGroups],
+  selector: 'app-scan-detail', imports: [RouterLink, DatePipe, MatButtonModule, DuplicateGroups, SignatureCheck, SignatureCoverage],
   template: `
     <a routerLink="/scans">← Scans</a>
     @if (error()) { <p class="error" role="alert">{{ error() }}</p><button mat-button (click)="load()">Retry</button> }
@@ -59,16 +61,17 @@ export function averageRate(job: Job): string | null {
         <p>{{ value.latestJob.physicalBytesRead }} physical bytes read; {{ value.latestJob.usefulBytesHashed }} useful completed bytes.
           Incomplete reads restart from byte zero. After an abrupt process loss, physical reads since the last committed chunk may be unrecorded.</p>
         @if (value.latestJob.id !== value.job.id) {
-          <p>Latest manual job · {{ value.latestJob.id }} · {{ value.latestJob.errorCount }} errors</p>
+          <p>Latest follow-up job · {{ value.latestJob.id }} · {{ value.latestJob.errorCount }} errors</p>
         }
         @for (job of value.activeHashJobs; track job.id) {
           <p class="small path">{{ job.id }} · {{ job.state }} · {{ job.phase }} · {{ job.hashedFiles }} fresh hashes · {{ job.currentPath ?? '' }}</p>
           @if (job.blockCode) { <p class="notice">{{ job.blockCode }}</p> }
-          @if (job.state === 'QUEUED' || job.state === 'RUNNING') { <button mat-button (click)="control('pause',job.id)" [disabled]="busy()">Pause hash job</button> }
-          @if (job.state === 'PAUSED' || job.state === 'INTERRUPTED') { <button mat-button (click)="control('resume',job.id)" [disabled]="busy()">Resume hash job</button> }
-          @if (canCancel(job)) { <button mat-button (click)="cancelJob.set(job.id)" [disabled]="busy()">Cancel hash job</button> }
+          @if (job.state === 'QUEUED' || job.state === 'RUNNING') { <button mat-button (click)="control('pause',job.id)" [disabled]="busy()">Pause follow-up job</button> }
+          @if (job.state === 'PAUSED' || job.state === 'INTERRUPTED') { <button mat-button (click)="control('resume',job.id)" [disabled]="busy()">Resume follow-up job</button> }
+          @if (canCancel(job)) { <button mat-button (click)="cancelJob.set(job.id)" [disabled]="busy()">Cancel follow-up job</button> }
         }
       </section>
+      <app-signature-check [scanId]="value.id" [frozen]="!!value.inventoryFrozenAt" />
       @if (!value.inventoryOnly || value.analysisAvailable) {
         <app-duplicate-groups [scanId]="value.id" [analysisId]="value.analysisId" [evidenceRevision]="value.evidenceRevision" (observation)="inspect($event)" />
       }
@@ -107,6 +110,7 @@ export function averageRate(job: Job): string | null {
             @if (entry.symlinkTargetBytesBase64) { <dt>Link target (base64)</dt><dd class="path">{{ entry.symlinkTargetBytesBase64 }}</dd> }
           </dl>
           @if (entry.hash; as hash) {
+            <app-signature-coverage [observationId]="entry.id" [scanId]="value.id" />
             <h3>SHA-256 evidence</h3><p class="badge" [class.blocked]="hash.status === 'STALE' || hash.status === 'FAILED'">{{ hash.status }}</p>
             @if (hash.pending) { <p role="status">A checksum request is unfinished.</p> }
             @if (hash.accepted; as accepted) {

@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
-  title: Fnord Dedup explorer and evidence API
-  version: 0.4.0-M3
+  title: Fnord Dedup catalog and evidence API
+  version: 0.5.0-M4
   description: Durable inventory, repeated-size SHA-256 hashing and immutable duplicate analysis. Unique-size hashing requires
     an explicit manual request. No source mutations, raw downloads or arbitrary-path inputs. Stored metadata search, location
-    annotations and frozen bulk review.
+    annotations and frozen bulk review. Versioned signatures, explicit broader hash coverage, atomic staged catalog imports
+    and durable catalog exports.
 servers:
 - url: /api/v1
 security:
@@ -110,7 +111,8 @@ paths:
     post:
       operationId: createScan
       description: Queue whole registered roots, inventory metadata, hash only repeated-size regular files, then publish duplicate
-        analysis. At most ten unfinished jobs and five creations per actor per minute.
+        analysis. At most ten unfinished jobs and five creations per actor per minute. Optional includeSignatureCandidates
+        captures explicit consent and a catalog revision.
       parameters:
       - $ref: '#/components/parameters/Csrf'
       - $ref: '#/components/parameters/Idempotency'
@@ -608,7 +610,7 @@ paths:
       description: Database-only AND filters. Text contains/exact compares literal UTF-8 bytes, case-sensitive; % and _ are
         data. Raw base64 supports non-UTF-8 names. Sorts use raw bytes, exact integers/nanoseconds, UUID tiebreaker and nulls
         last. Cursors bind filters, committed entry cutoff and evidence/query/annotation revisions; changes return 409 CURSOR_STALE.
-        Future signature/content filters return 422.
+        Signature filters use current guarded findings; future content filters return 422.
       parameters:
       - name: id
         in: path
@@ -782,7 +784,7 @@ paths:
       parameters:
       - name: query
         in: query
-        schema: &id017
+        schema: &id024
           type: string
       - *id004
       - *id005
@@ -873,9 +875,9 @@ paths:
   /scans/{id}/selections:
     post:
       operationId: freezeSelection
-      description: "Atomically freezes all matching or explicit IDs in the captured view. 1\u2013500 rows; overflow is rejected\
-        \ without truncation. Captures annotation versions/snapshots and accepted attempt IDs. Actor-bound, expires in 24\
-        \ hours. New inventory rows never extend it."
+      description: Atomically freezes all matching or explicit IDs in the captured view. 1–500 rows; overflow is rejected
+        without truncation. Captures annotation versions/snapshots and accepted attempt IDs. Actor-bound, expires in 24 hours.
+        New inventory rows never extend it.
       parameters:
       - name: id
         in: path
@@ -972,6 +974,713 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AnnotationBatch'
+  /signature-limits:
+    get:
+      operationId: signatureLimits
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureLimits'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+  /signatures:
+    get:
+      operationId: signatures
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignaturePage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - &id010
+        name: cursor
+        in: query
+        required: false
+        schema: &id006
+          type: string
+      - &id011
+        name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 50
+      - name: query
+        in: query
+        required: false
+        schema: *id006
+      - name: catalogRevision
+        in: query
+        required: false
+        schema: &id007
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+      description: Immutable catalog snapshot with sequence keyset pagination. Pass catalogRevision from the first page on
+        later pages.
+    post:
+      operationId: createSignature
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signature'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - &id009
+        $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignatureWrite'
+  /signatures/{id}:
+    get:
+      operationId: signature
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signature'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: &id008
+          type: string
+          format: uuid
+      - name: revision
+        in: query
+        required: false
+        schema: *id007
+    patch:
+      operationId: editSignature
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Signature'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id009
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignatureWrite'
+  /signature-imports:
+    post:
+      operationId: stageSignatureImport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureImport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id009
+      - name: format
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - JSON
+          - CSV
+      - name: policy
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - REJECT_EXISTING_ID
+          - UPDATE_BY_ID
+      description: Raw UTF-8 upload, bounded before parsing; JSON strict duplicate-key detection, Commons CSV RFC4180 with
+        exact documented header. Default 1 MiB / 2000 rows. Staging has no active catalog effects.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+          application/json:
+            schema:
+              type: object
+          text/csv:
+            schema: *id006
+  /signature-imports/{id}:
+    get:
+      operationId: signatureImport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureImport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id010
+      - *id011
+  /signature-imports/{id}/apply:
+    post:
+      operationId: applySignatureImport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureImportApplied'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id009
+      - &id012
+        name: Idempotency-Key
+        in: header
+        required: false
+        schema: *id006
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expectedCatalogRevision
+              properties:
+                expectedCatalogRevision: *id007
+      description: Actor-owned, valid staging only. Optimistic catalog and per-record revision checks; one atomic transaction
+        or no changes. Applied retries remain idempotent.
+  /scans/{id}/signature-check-preview:
+    post:
+      operationId: signatureCheckPreview
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignaturePreview'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id009
+      description: Database-only count and exact byte estimate for eligible previously unhashed signature-size candidates
+        in this frozen scan; captures catalog/evidence revision and expires after one hour.
+  /signature-check-jobs:
+    post:
+      operationId: checkSignatures
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HashCreated'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id009
+      - *id012
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - previewId
+              - allowBodyReads
+              properties:
+                previewId: *id008
+                allowBodyReads:
+                  type: boolean
+                  const: true
+  /observations/{id}/signatures:
+    get:
+      operationId: observationSignatures
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureFindings'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id010
+      - *id011
+      - name: runId
+        in: query
+        required: false
+        schema: *id008
+      description: Current guarded coverage by default; optional published runId exposes original historical status. Current
+        and active flags explicitly identify obsolete findings.
+  /scans/{id}/signature-findings:
+    get:
+      operationId: signatureFindings
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureCoveragePage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id010
+      - *id011
+  /scans/{id}/signature-runs:
+    get:
+      operationId: signatureRuns
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureRunPage'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id010
+      - *id011
+  /signature-exports:
+    post:
+      operationId: exportSignatures
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureExport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - *id009
+      - *id012
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - format
+              - catalogRevision
+              properties:
+                format:
+                  type: string
+                  enum:
+                  - JSON
+                  - CSV
+                catalogRevision: *id007
+      description: Durable database artifact job; snapshot metadata, bounded batches, reserved quota, checksum then atomic
+        readiness. No source access.
+  /signature-exports/{id}:
+    get:
+      operationId: signatureExport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureExport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+  /signature-exports/{id}/pause:
+    post:
+      operationId: pauseSignatureExport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureExport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id009
+  /signature-exports/{id}/resume:
+    post:
+      operationId: resumeSignatureExport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureExport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id009
+  /signature-exports/{id}/cancel:
+    post:
+      operationId: cancelSignatureExport
+      responses:
+        '200':
+          description: Stored result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignatureExport'
+        '401':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        '413':
+          $ref: '#/components/responses/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+        '503':
+          $ref: '#/components/responses/Problem'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      - *id009
+  /signature-exports/{id}/download:
+    get:
+      operationId: downloadSignatureExport
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: *id008
+      description: Authenticated artifact ID only. READY required. JSON preserves exact metadata. CSV neutralizes textual
+        spreadsheet formula/control prefixes and may change display metadata; raw basename base64 remains reversible.
+      responses:
+        '200':
+          description: Complete immutable catalog artifact
+          content:
+            application/json:
+              schema: *id006
+            text/csv:
+              schema: *id006
+        '409':
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     session:
@@ -991,7 +1700,7 @@ components:
       in: query
       description: Opaque cursor scoped to this view and its committed sequence cutoff. Refresh without a cursor to see newly
         committed rows.
-      schema: &id009
+      schema: &id016
         type: string
     Limit:
       name: limit
@@ -1058,7 +1767,7 @@ components:
           type: string
         milestone:
           type: string
-          const: M3
+          const: M4
         platform:
           type: string
         sourcePolicy:
@@ -1171,8 +1880,9 @@ components:
           default: SHA-256
         includeSignatureCandidates:
           type: boolean
-          const: false
           default: false
+          description: Default off. Hash the union of duplicate sizes and enabled signature sizes in the captured creation-time
+            catalog revision.
         textIndexingEnabled:
           type: boolean
           const: false
@@ -1235,6 +1945,8 @@ components:
           - INVENTORY
           - SCAN
           - HASH
+          - SIGNATURE_CHECK
+          - SIGNATURE_MATCH
         phase:
           type: string
           enum:
@@ -1242,6 +1954,7 @@ components:
           - CANDIDATE_SELECTION
           - HASHING
           - ANALYSIS
+          - SIGNATURE_MATCH
         state:
           type: string
           enum:
@@ -1255,13 +1968,13 @@ components:
           - COMPLETED
           - COMPLETED_WITH_ERRORS
           - FAILED
-        version: &id007
+        version: &id014
           type: string
           pattern: ^[0-9]+$
-        createdAt: &id006
+        createdAt: &id013
           type: string
           format: date-time
-        updatedAt: *id006
+        updatedAt: *id013
         startedAt:
           type:
           - string
@@ -1301,26 +2014,30 @@ components:
         heartbeatSeconds:
           type: integer
           const: 10
-        discoveredEntries: *id007
-        discoveredFiles: *id007
-        discoveredDirectories: *id007
-        discoveredBytes: *id007
-        errorCount: *id007
-        skippedEntries: *id007
-        pendingWork: *id007
-        completedWork: *id007
-        totalKnown: &id010
+        discoveredEntries: *id014
+        discoveredFiles: *id014
+        discoveredDirectories: *id014
+        discoveredBytes: *id014
+        errorCount: *id014
+        skippedEntries: *id014
+        pendingWork: *id014
+        completedWork: *id014
+        totalKnown: &id017
           type: boolean
-        waitingForIo: &id012
+        waitingForIo: &id019
           type: boolean
-        candidateFiles: &id008
+        candidateFiles: &id015
           type: string
           pattern: ^[0-9]+$
-        candidateBytes: *id008
-        hashedFiles: *id008
-        reusedFiles: *id008
-        physicalBytesRead: *id008
-        usefulBytesHashed: *id008
+        candidateBytes: *id015
+        hashedFiles: *id015
+        reusedFiles: *id015
+        physicalBytesRead: *id015
+        usefulBytesHashed: *id015
+        catalogRevision:
+          anyOf:
+          - *id007
+          - type: 'null'
     ScanSource:
       type: object
       required:
@@ -1332,11 +2049,11 @@ components:
       properties:
         sourceId: *id001
         sourceInstanceId: *id001
-        label: *id009
+        label: *id016
         rootLocationId: *id001
         coverage:
           type: string
-          enum: &id011
+          enum: &id018
           - COMPLETE
           - PARTIAL
           - UNAVAILABLE
@@ -1359,16 +2076,16 @@ components:
       - activeHashJobs
       properties:
         id: *id001
-        name: *id009
-        configurationRevision: *id009
-        createdAt: *id006
+        name: *id016
+        configurationRevision: *id016
+        createdAt: *id013
         inventoryFrozenAt:
           type:
           - string
           - 'null'
           format: date-time
-        inventoryOnly: *id010
-        analysisAvailable: *id010
+        inventoryOnly: *id017
+        analysisAvailable: *id017
         job:
           $ref: '#/components/schemas/Job'
         sources:
@@ -1379,7 +2096,7 @@ components:
           anyOf:
           - *id002
           - type: 'null'
-        evidenceRevision: *id008
+        evidenceRevision: *id015
         latestJob:
           $ref: '#/components/schemas/Job'
         activeHashJobs:
@@ -1387,6 +2104,13 @@ components:
           maxItems: 10
           items:
             $ref: '#/components/schemas/Job'
+        includeSignatureCandidates: &id033
+          type: boolean
+        signatureCatalogRevision: *id007
+        signatureRunId:
+          anyOf:
+          - *id008
+          - type: 'null'
     Observation:
       type: object
       required:
@@ -1438,10 +2162,10 @@ components:
           - string
           - 'null'
           format: uuid
-        name: *id009
-        path: *id009
-        relativePathBytesBase64: *id009
-        nameBytesBase64: *id009
+        name: *id016
+        path: *id016
+        relativePathBytesBase64: *id016
+        nameBytesBase64: *id016
         extension:
           type:
           - string
@@ -1549,14 +2273,14 @@ components:
           - string
           - 'null'
           format: date-time
-        discoveryStatus: *id009
+        discoveryStatus: *id016
         directoryCoverage:
           type:
           - string
           - 'null'
-          enum: *id011
-        unstable: *id012
-        observedAt: *id006
+          enum: *id018
+        unstable: *id019
+        observedAt: *id013
         hash:
           $ref: '#/components/schemas/HashEvidence'
     JobError:
@@ -1569,12 +2293,12 @@ components:
       - detail
       - createdAt
       properties:
-        id: *id007
+        id: *id014
         locationId: *id001
-        displayPath: *id009
-        code: *id009
-        detail: *id009
-        createdAt: *id006
+        displayPath: *id016
+        code: *id016
+        detail: *id016
+        createdAt: *id013
     ScanPage:
       type: object
       required:
@@ -1638,7 +2362,7 @@ components:
           - string
           - 'null'
           format: uuid
-        displayPath: *id009
+        displayPath: *id016
     HashAttempt:
       type: object
       required:
@@ -1663,17 +2387,17 @@ components:
           const: SHA-256
         digest:
           anyOf:
-          - &id015
+          - &id022
             type: string
             pattern: ^[0-9a-f]{64}$
           - type: 'null'
-        bytesRead: *id008
-        startedAt: &id013
+        bytesRead: *id015
+        startedAt: &id020
           type: string
           format: date-time
         completedAt:
           anyOf:
-          - *id013
+          - *id020
           - type: 'null'
         reasons:
           type: array
@@ -1694,12 +2418,12 @@ components:
           - CONFLICT
         errorCode:
           anyOf:
-          - &id014
+          - &id021
             type: string
           - type: 'null'
         errorDetail:
           anyOf:
-          - *id014
+          - *id021
           - type: 'null'
         preFingerprint:
           anyOf:
@@ -1730,7 +2454,7 @@ components:
           - FAILED
           - NOT_REQUESTED_UNIQUE_SIZE
           - NOT_REQUESTED
-        pending: *id010
+        pending: *id017
         accepted:
           anyOf:
           - $ref: '#/components/schemas/HashAttempt'
@@ -1741,7 +2465,7 @@ components:
           - type: 'null'
         invalidationCode:
           anyOf:
-          - *id014
+          - *id021
           - type: 'null'
     HashRequest:
       type: object
@@ -1789,7 +2513,7 @@ components:
             $ref: '#/components/schemas/HashAttempt'
         nextCursor:
           anyOf:
-          - *id014
+          - *id021
           - type: 'null'
     DuplicateGroup:
       type: object
@@ -1813,15 +2537,15 @@ components:
         id: *id002
         analysisId: *id002
         scanId: *id002
-        sizeBytes: *id008
+        sizeBytes: *id015
         algorithm:
           type: string
           const: SHA-256
-        digest: *id015
-        pathCount: *id008
+        digest: *id022
+        pathCount: *id015
         objectCount:
           anyOf:
-          - *id008
+          - *id015
           - type: 'null'
         identityStatus:
           type: string
@@ -1838,14 +2562,14 @@ components:
         sourceIds:
           type: array
           items: *id002
-        pathLogicalBytes: *id008
+        pathLogicalBytes: *id015
         independentObjectLogicalBytes:
           anyOf:
-          - *id008
+          - *id015
           - type: 'null'
         maximumDuplicateCopyLogicalBytes:
           anyOf:
-          - *id008
+          - *id015
           - type: 'null'
         physicalSavingsBytes:
           type: 'null'
@@ -1862,7 +2586,7 @@ components:
           anyOf:
           - *id002
           - type: 'null'
-        evidenceRevision: *id008
+        evidenceRevision: *id015
         status:
           type: string
           enum:
@@ -1875,7 +2599,7 @@ components:
             $ref: '#/components/schemas/DuplicateGroup'
         nextCursor:
           anyOf:
-          - *id014
+          - *id021
           - type: 'null'
     GroupDetail:
       type: object
@@ -1900,7 +2624,7 @@ components:
                 $ref: '#/components/schemas/HashAttempt'
         nextCursor:
           anyOf:
-          - *id014
+          - *id021
           - type: 'null'
     Tag:
       type: object
@@ -1915,7 +2639,7 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-        version: &id016
+        version: &id023
           type: string
           pattern: ^(0|[1-9][0-9]*)$
     TagPage:
@@ -1929,7 +2653,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Tag'
-        nextCursor: &id018
+        nextCursor: &id025
           type:
           - string
           - 'null'
@@ -1957,8 +2681,8 @@ components:
       properties:
         locationId: *id003
         observationId: *id003
-        version: *id016
-        memo: *id017
+        version: *id023
+        memo: *id024
         reviewState:
           $ref: '#/components/schemas/ReviewState'
         tags:
@@ -1966,19 +2690,19 @@ components:
           items:
             $ref: '#/components/schemas/Tag'
           maxItems: 100
-        needsReview: &id019
+        needsReview: &id026
           type: boolean
-        baselineObservationId: &id023
+        baselineObservationId: &id030
           type:
           - string
           - 'null'
           format: uuid
-        updatedAt: &id021
+        updatedAt: &id028
           type:
           - string
           - 'null'
           format: date-time
-        updatedBy: *id018
+        updatedBy: *id025
     AnnotationUpdate:
       type: object
       additionalProperties: false
@@ -1990,7 +2714,7 @@ components:
       - reviewState
       properties:
         observationId: *id003
-        expectedVersion: *id016
+        expectedVersion: *id023
         memo:
           type: string
           maxLength: 20000
@@ -2027,8 +2751,8 @@ components:
         subtreeLocationId: *id003
         parentLocationId: *id003
         duplicateGroupId: *id003
-        minBytes: *id016
-        maxBytes: *id016
+        minBytes: *id023
+        maxBytes: *id023
         mtimeFrom:
           type: string
           format: date-time
@@ -2057,7 +2781,7 @@ components:
         checksumPrefix:
           type: string
           pattern: ^[0-9a-fA-F]{1,64}$
-        hashStatus: &id020
+        hashStatus: &id027
           type: string
           enum:
           - ACCEPTED
@@ -2067,7 +2791,7 @@ components:
           - INELIGIBLE
           - NOT_REQUESTED
           - NOT_REQUESTED_UNIQUE_SIZE
-        duplicateState: &id022
+        duplicateState: &id029
           type: string
           enum:
           - DUPLICATE
@@ -2085,9 +2809,31 @@ components:
           description: 'Server default: ANY.'
         reviewState:
           $ref: '#/components/schemas/ReviewState'
-        hasError: *id019
-        stale: *id019
-        annotationsNeedReview: *id019
+        hasError: *id026
+        stale: *id026
+        annotationsNeedReview: *id026
+        signatureId: *id008
+        signatureTagId: *id008
+        signatureStatus: &id031
+          type: string
+          enum:
+          - MATCHED
+          - NO_MATCH_IN_CHECKED_CATALOG
+          - UNDETERMINED
+        signatureCheckStatus: &id032
+          type: string
+          enum:
+          - CHECKED_HASH
+          - EXCLUDED_BY_SIZE
+          - HASH_REQUIRED
+          - STALE
+          - READ_ERROR
+          - CATALOG_NOT_CHECKED
+        tagScope:
+          type: string
+          enum:
+          - MANUAL
+          - EFFECTIVE
     SearchQuery:
       type: object
       additionalProperties: false
@@ -2115,7 +2861,7 @@ components:
           minimum: 1
           maximum: 500
           description: 'Server default: 100.'
-        cursor: *id018
+        cursor: *id025
     SearchEntry:
       allOf:
       - $ref: '#/components/schemas/Observation'
@@ -2130,15 +2876,21 @@ components:
         - hasError
         - annotation
         properties:
-          hashStatus: *id020
-          checksum: *id018
-          checksumCompletedAt: *id021
-          duplicateState: *id022
-          duplicateGroupId: *id023
-          stale: *id019
-          hasError: *id019
+          hashStatus: *id027
+          checksum: *id025
+          checksumCompletedAt: *id028
+          duplicateState: *id029
+          duplicateGroupId: *id030
+          stale: *id026
+          hasError: *id026
           annotation:
             $ref: '#/components/schemas/Annotation'
+          signatureStatus: *id031
+          signatureCheckStatus: *id032
+          signatureCatalogRevision:
+            anyOf:
+            - *id007
+            - type: 'null'
     SearchPage:
       type: object
       additionalProperties: false
@@ -2154,11 +2906,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SearchEntry'
-        nextCursor: *id018
-        viewToken: *id017
-        evidenceRevision: *id016
-        annotationRevision: *id016
-        analysisId: *id023
+        nextCursor: *id025
+        viewToken: *id024
+        evidenceRevision: *id023
+        annotationRevision: *id023
+        analysisId: *id030
     HistoryPage:
       type: object
       additionalProperties: false
@@ -2178,8 +2930,8 @@ components:
               properties:
                 annotation:
                   $ref: '#/components/schemas/Annotation'
-                hashStatus: *id020
-        nextCursor: *id018
+                hashStatus: *id027
+        nextCursor: *id025
     Directory:
       type: object
       additionalProperties: false
@@ -2190,8 +2942,8 @@ components:
       - breadcrumbs
       properties:
         locationId: *id003
-        path: *id017
-        coverage: *id018
+        path: *id024
+        coverage: *id025
         breadcrumbs:
           type: array
           items:
@@ -2203,8 +2955,8 @@ components:
             - path
             properties:
               locationId: *id003
-              name: *id017
-              path: *id017
+              name: *id024
+              path: *id024
     SelectionRequest:
       type: object
       additionalProperties: false
@@ -2214,7 +2966,7 @@ components:
       properties:
         query:
           $ref: '#/components/schemas/SearchQuery'
-        viewToken: *id017
+        viewToken: *id024
         observationIds:
           type: array
           items: *id003
@@ -2237,19 +2989,27 @@ components:
       properties:
         id: *id003
         scanId: *id003
-        analysisId: *id023
-        count: *id016
-        totalBytes: *id016
-        createdAt: *id021
-        expiresAt: *id021
-        expired: *id019
-        appliedAt: *id021
+        analysisId: *id030
+        count: *id023
+        totalBytes: *id023
+        createdAt: *id028
+        expiresAt: *id028
+        expired: *id026
+        appliedAt: *id028
         query:
           $ref: '#/components/schemas/SearchQuery'
         unknownSizes:
           type: string
           pattern: ^(0|[1-9][0-9]*)$
           description: Members lacking size. totalBytes sums known sizes only.
+        signatureCatalogRevision:
+          type: string
+          pattern: ^(0|[1-9][0-9]*)$
+        signatureRunId:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
     SelectionDetail:
       allOf:
       - $ref: '#/components/schemas/Selection'
@@ -2259,7 +3019,7 @@ components:
         - items
         - nextCursor
         properties:
-          needsReview: *id019
+          needsReview: *id026
           items:
             type: array
             items:
@@ -2271,7 +3031,7 @@ components:
                 properties:
                   capturedAnnotation:
                     $ref: '#/components/schemas/Annotation'
-          nextCursor: *id018
+          nextCursor: *id025
     AnnotationBatch:
       type: object
       additionalProperties: false
@@ -2297,7 +3057,7 @@ components:
       - updatedCount
       properties:
         selectionId: *id003
-        updatedCount: *id016
+        updatedCount: *id023
     TagCreate:
       type: object
       additionalProperties: false
@@ -2319,4 +3079,422 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-        expectedVersion: *id016
+        expectedVersion: *id023
+    SignatureWrite:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      properties:
+        name: &id034
+          type: string
+          minLength: 1
+          maxLength: 200
+        memo: &id035
+          type: string
+          maxLength: 20000
+        tags: &id042
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+        sizeBytes: *id007
+        algorithm: &id036
+          type: string
+          enum:
+          - SHA-256
+        checksum: &id037
+          type: string
+          pattern: ^[0-9a-fA-F]{64}$
+        filename: &id038
+          anyOf:
+          - *id006
+          - type: 'null'
+        filenameBytesBase64: &id039
+          anyOf:
+          - *id006
+          - type: 'null'
+        filenameMatchMode: &id040
+          type: string
+          enum:
+          - ADVISORY
+          - REQUIRED_EXACT
+        enabled: *id033
+        sourceNote: *id006
+        expectedRevision: *id007
+        observationId: *id008
+        tagIds:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+      description: Create/edit full fields. For create-from-observation supply observationId and omit sizeBytes, algorithm,
+        checksum and both filename fields; the server requires accepted evidence. Edits require expectedRevision. Tags resolve
+        reusable normalized labels, retaining revision snapshots. UI edits may supply tagIds instead of tags to keep stable
+        references through tag renames.
+    Signature:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - memo
+      - sizeBytes
+      - algorithm
+      - checksum
+      - filename
+      - filenameBytesBase64
+      - filenameMatchMode
+      - enabled
+      - sourceNote
+      - tags
+      - id
+      - revision
+      - catalogRevision
+      - origin
+      - observationId
+      - attemptId
+      - createdAt
+      - updatedAt
+      properties:
+        name: *id034
+        memo: *id035
+        sizeBytes: *id007
+        algorithm: *id036
+        checksum: *id037
+        filename: *id038
+        filenameBytesBase64: *id039
+        filenameMatchMode: *id040
+        enabled: *id033
+        sourceNote: *id006
+        tags:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tag'
+        id: *id008
+        revision: *id007
+        catalogRevision: *id007
+        origin:
+          type: string
+          enum:
+          - MANUAL
+          - FROM_OBSERVATION
+          - IMPORT
+        observationId:
+          anyOf:
+          - *id008
+          - type: 'null'
+        attemptId:
+          anyOf:
+          - *id008
+          - type: 'null'
+        createdAt: *id006
+        updatedAt: *id006
+    SignaturePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      - catalogRevision
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Signature'
+        nextCursor:
+          anyOf:
+          - *id006
+          - type: 'null'
+        catalogRevision: *id007
+    SignatureLimits:
+      type: object
+      additionalProperties: false
+      required:
+      - importBytes
+      - importRows
+      - exportBytes
+      properties:
+        importBytes: &id041
+          type: integer
+        importRows: *id041
+        exportBytes: *id041
+    SignatureCoverage:
+      type: object
+      required:
+      - runId
+      - catalogRevision
+      - catalogCurrent
+      - matchStatus
+      - checkStatus
+      - checkedAt
+      - attemptId
+      properties:
+        runId:
+          anyOf:
+          - *id008
+          - type: 'null'
+        catalogRevision:
+          anyOf:
+          - *id007
+          - type: 'null'
+        catalogCurrent: *id033
+        matchStatus: *id031
+        checkStatus: *id032
+        checkedAt:
+          anyOf:
+          - *id006
+          - type: 'null'
+        attemptId:
+          anyOf:
+          - *id008
+          - type: 'null'
+    SignatureFindings:
+      allOf:
+      - $ref: '#/components/schemas/SignatureCoverage'
+      - type: object
+        required:
+        - items
+        - nextCursor
+        - observationId
+        - current
+        properties:
+          items:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required:
+              - signature
+              - matchedAt
+              - active
+              properties:
+                signature:
+                  $ref: '#/components/schemas/Signature'
+                matchedAt: *id006
+                active: *id033
+          nextCursor:
+            anyOf:
+            - *id006
+            - type: 'null'
+          observationId: *id008
+          current: *id033
+    SignatureCoveragePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            allOf:
+            - $ref: '#/components/schemas/SignatureCoverage'
+            - type: object
+              required:
+              - observationId
+              - displayPath
+              properties:
+                observationId: *id008
+                displayPath: *id006
+        nextCursor:
+          anyOf:
+          - *id006
+          - type: 'null'
+    SignatureRunPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - jobId
+            - catalogRevision
+            - evidenceRevision
+            - publishedAt
+            - current
+            properties:
+              id: *id008
+              jobId: *id008
+              catalogRevision: *id007
+              evidenceRevision: *id007
+              publishedAt: *id006
+              current: *id033
+        nextCursor:
+          anyOf:
+          - *id006
+          - type: 'null'
+    SignaturePreview:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - scanId
+      - catalogRevision
+      - candidateFiles
+      - candidateBytes
+      - expiresAt
+      properties:
+        id: *id008
+        scanId: *id008
+        catalogRevision: *id007
+        candidateFiles: *id007
+        candidateBytes: *id007
+        expiresAt: *id006
+    SignatureImport:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - nextCursor
+      - id
+      - state
+      - format
+      - policy
+      - catalogRevision
+      - rowCount
+      - errorCount
+      - expiresAt
+      - appliedCatalogRevision
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - row
+            - error
+            - proposed
+            properties:
+              row: *id041
+              error:
+                anyOf:
+                - *id006
+                - type: 'null'
+              proposed:
+                anyOf:
+                - type: object
+                  additionalProperties: false
+                  required:
+                  - id
+                  - expectedRevision
+                  - name
+                  - sizeBytes
+                  - checksum
+                  properties:
+                    id: *id008
+                    expectedRevision: *id007
+                    name: *id034
+                    memo: *id035
+                    tags: *id042
+                    sizeBytes: *id007
+                    algorithm: *id036
+                    checksum: *id037
+                    filename: *id038
+                    filenameBytesBase64: *id039
+                    filenameMatchMode: *id040
+                    enabled: *id033
+                    sourceNote: *id006
+                - type: 'null'
+        nextCursor:
+          anyOf:
+          - *id006
+          - type: 'null'
+        id: *id008
+        state:
+          type: string
+          enum:
+          - VALID
+          - INVALID
+          - APPLIED
+        format:
+          type: string
+          enum:
+          - JSON
+          - CSV
+        policy:
+          type: string
+          enum:
+          - REJECT_EXISTING_ID
+          - UPDATE_BY_ID
+        catalogRevision: *id007
+        rowCount: *id041
+        errorCount: *id041
+        expiresAt: *id006
+        appliedCatalogRevision:
+          anyOf:
+          - *id007
+          - type: 'null'
+    SignatureImportApplied:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - state
+      - catalogRevision
+      - rowCount
+      properties:
+        id: *id008
+        state:
+          type: string
+          enum:
+          - APPLIED
+        catalogRevision: *id007
+        rowCount: *id041
+    SignatureExport:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - state
+      - format
+      - catalogRevision
+      - rowCount
+      - byteCount
+      - sha256
+      - errorCode
+      - createdAt
+      - completedAt
+      properties:
+        id: *id008
+        state:
+          type: string
+          enum:
+          - QUEUED
+          - BUILDING
+          - PAUSED
+          - READY
+          - CANCELLED
+          - FAILED
+        format:
+          type: string
+          enum:
+          - JSON
+          - CSV
+        catalogRevision: *id007
+        rowCount: *id007
+        byteCount: *id007
+        sha256:
+          anyOf:
+          - *id006
+          - type: 'null'
+        errorCode:
+          anyOf:
+          - *id006
+          - type: 'null'
+        createdAt: *id006
+        completedAt:
+          anyOf:
+          - *id006
+          - type: 'null'

@@ -33,6 +33,7 @@ dt { color: #607087; } dd { margin: 0; overflow-wrap: anywhere; }
 footer { text-align: center; padding: 20px; color: #69778b; font-size: 12px; }
 .skip-link { position: fixed; top: -80px; left: 10px; background: white; padding: 12px; z-index: 10; }
 .skip-link:focus { top: 10px; }
+.skip-link:not(:focus) { clip-path:inset(50%); width:1px; height:1px; padding:0; overflow:hidden; white-space:nowrap; }
 :focus-visible { outline: 3px solid #568bbb; outline-offset: 4px; }
 @media(max-width:650px) { main { padding: 30px 16px; } .panel { padding: 22px; } .columns { grid-template-columns: 1fr; gap: 0; } .policy { display: none; } .brand { margin-right: auto; } nav { order: 3; width: 100%; } dl { grid-template-columns: 1fr; gap: 4px; } dd { margin-bottom: 12px; } }
 fieldset { border: 1px solid #dfe6ee; border-radius: 8px; padding: 14px 18px; }
@@ -77,3 +78,8 @@ td small { display: block; color: #56667b; font-size: 11px; margin: 5px 0; }
 
 .explorer-results table { min-width: 850px; }
 .explorer-results td.path { min-width: 180px; }
+
+.signature-fields { border:0; padding:0; margin:0; min-width:0; }
+.finding { border-top:1px solid var(--line,#d7e0e8); padding-block:1rem; }
+.finding .memo { white-space:pre-wrap; overflow-wrap:anywhere; }
+app-signatures textarea { display:block; box-sizing:border-box; width:100%; margin-block:.5rem; }

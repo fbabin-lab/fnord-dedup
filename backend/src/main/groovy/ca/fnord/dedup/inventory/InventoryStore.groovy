@@ -1,5 +1,7 @@
 package ca.fnord.dedup.inventory
 
+import ca.fnord.dedup.signatures.SignatureExports
+import ca.fnord.dedup.signatures.SignaturePipeline
 import ca.fnord.dedup.roots.SourceDefinition
 import ca.fnord.dedup.roots.fs.FileMetadata
 import ca.fnord.dedup.roots.fs.RawPath
@@ -120,7 +122,7 @@ class InventoryStore {
             }
             if (active == null) {
                 active = one("SELECT * FROM job WHERE state='QUEUED' ORDER BY sequence LIMIT 1 FOR UPDATE SKIP LOCKED")
-                if (active == null) return null
+                if (active == null) { if (!SignatureExports.advance(this)) SignaturePipeline.enqueue(this); coordinator(owner,epoch); return null }
                 state((UUID)active.id,'RUNNING','scheduler')
                 jdbc.update('UPDATE job SET started_at=coalesce(started_at,clock_timestamp()),heartbeat_at=clock_timestamp() WHERE id=?',active.id)
             }
@@ -201,8 +203,12 @@ class InventoryStore {
             stage(id,scanId,'CANDIDATE_SELECTION','SELECT_CANDIDATES')
             return
         }
-        if (row.type in ['SCAN','HASH'] && row.phase != 'ANALYSIS') {
+        if (row.type in ['SCAN','HASH','SIGNATURE_CHECK'] && row.phase in ['CANDIDATE_SELECTION','HASHING']) {
             stage(id,scanId,'ANALYSIS','GROUP')
+            return
+        }
+        if (row.type in ['SCAN','HASH','SIGNATURE_CHECK'] && row.phase == 'ANALYSIS') {
+            SignaturePipeline.stage(this,id,scanId)
             return
         }
         state(id,((Number)row.error_count).longValue() > 0L || ((Number)row.skipped_entries).longValue() > 0L ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED','worker')

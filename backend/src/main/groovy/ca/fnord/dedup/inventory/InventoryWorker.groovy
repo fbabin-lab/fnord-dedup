@@ -1,5 +1,6 @@
 package ca.fnord.dedup.inventory
 
+import ca.fnord.dedup.signatures.SignaturePipeline
 import ca.fnord.dedup.roots.*
 import ca.fnord.dedup.roots.fs.*
 import groovy.transform.CompileStatic
@@ -60,6 +61,8 @@ class InventoryWorker implements SmartLifecycle {
         if (claim == null) { preparedJob = null; return }
         try {
             if (claim.kind == 'SELECT_CANDIDATES') { new HashPipeline(store,sources).select(claim); return }
+            if (claim.kind == 'SIGNATURE_SELECT') { new SignaturePipeline(store).select(claim); return }
+            if (claim.kind == 'SIGNATURE_MATCH') { new SignaturePipeline(store).run(claim); return }
             if (claim.kind == 'GROUP') { new AnalysisPipeline(store).run(claim); return }
             if (claim.configurationRevision != sources.revision) throw new JobProblem(409,'SOURCE_CONFIGURATION_CHANGED','Source configuration changed.')
             if (preparedJob != claim.jobId) { prepare(claim); preparedJob = claim.jobId }

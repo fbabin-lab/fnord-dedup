@@ -27,9 +27,9 @@ class SelectionService {
             UUID id=UUID.randomUUID()
             BigDecimal bytes=BigDecimal.ZERO
             for (Map row : rows) if (row.size_bytes!=null) bytes=bytes.add(new BigDecimal(row.size_bytes.toString()))
-            store.jdbc.update('''INSERT INTO selection(id,actor,scan_id,analysis_id,evidence_revision,query_revision,annotation_revision,entry_cutoff,query_snapshot,selected_count,selected_bytes,unknown_sizes)
-                VALUES (?,?,?,?,?,?,?,?,?::jsonb,?,?,?)''',id,actor,scanId,context.analysis==null ? null : Values.id(context.analysis),Long.parseLong(context.evidence.toString()),
-                Long.parseLong(context.revision.toString()),Long.parseLong(context.annotations.toString()),Long.parseLong(context.cutoff.toString()),store.json(query),rows.size(),bytes,rows.count { Map row -> row.size_bytes==null })
+            store.jdbc.update('''INSERT INTO selection(id,actor,scan_id,analysis_id,evidence_revision,query_revision,annotation_revision,entry_cutoff,query_snapshot,selected_count,selected_bytes,unknown_sizes,signature_catalog_revision,signature_run_id)
+                VALUES (?,?,?,?,?,?,?,?,?::jsonb,?,?,?,?,?)''',id,actor,scanId,context.analysis==null ? null : Values.id(context.analysis),Long.parseLong(context.evidence.toString()),
+                Long.parseLong(context.revision.toString()),Long.parseLong(context.annotations.toString()),Long.parseLong(context.cutoff.toString()),store.json(query),rows.size(),bytes,rows.count { Map row -> row.size_bytes==null },Long.parseLong(context.catalog.toString()),context.signatures==null ? null : Values.id(context.signatures))
             int ordinal=0
             for (Map row : rows) store.jdbc.update('''INSERT INTO selection_member(selection_id,scan_id,entry_id,location_id,ordinal,annotation_version,annotation_snapshot,accepted_attempt_id,was_stale)
                 VALUES (?,?,?,?,?,?,?::jsonb,?,?)''',id,scanId,row.id,row.location_id,++ordinal,row.annotation_version,store.json(annotations.summary(row,true)),row.accepted_attempt_id,row.stale)
@@ -44,18 +44,22 @@ class SelectionService {
     }
     Map describe(Map selection) {
         [id:selection.id,scanId:selection.scan_id,analysisId:selection.analysis_id,count:selection.selected_count.toString(),totalBytes:selection.selected_bytes.toString(),unknownSizes:selection.unknown_sizes.toString(),
-         createdAt:InventoryService.time(selection.created_at),expiresAt:InventoryService.time(selection.expires_at),expired:selection.expired,appliedAt:InventoryService.time(selection.applied_at),query:store.parse(selection.query_snapshot.toString())]
+         signatureCatalogRevision:selection.signature_catalog_revision.toString(),signatureRunId:selection.signature_run_id,createdAt:InventoryService.time(selection.created_at),expiresAt:InventoryService.time(selection.expires_at),expired:selection.expired,appliedAt:InventoryService.time(selection.applied_at),query:store.parse(selection.query_snapshot.toString())]
     }
     List<Map<String,Object>> members(UUID id) {
-        store.jdbc.queryForList('''SELECT e.*,m.ordinal,m.annotation_version AS captured_version,m.annotation_snapshot,m.accepted_attempt_id AS captured_attempt,m.was_stale
-            FROM selection_member m JOIN observation_search e ON e.id=m.entry_id WHERE m.selection_id=? ORDER BY m.ordinal LIMIT 500''',id)
+        store.jdbc.queryForList('''SELECT e.*,sc.match_status AS signature_status,sc.check_status AS signature_check_status,sc.catalog_revision AS signature_catalog_revision,m.ordinal,m.annotation_version AS captured_version,m.annotation_snapshot,m.accepted_attempt_id AS captured_attempt,m.was_stale
+            FROM selection_member m JOIN observation_search e ON e.id=m.entry_id JOIN signature_coverage sc ON sc.entry_id=e.id WHERE m.selection_id=? ORDER BY m.ordinal LIMIT 500''',id)
     }
     boolean changed(Map row) {
         Map snapshot=store.parse(row.annotation_snapshot.toString())
         row.annotation_version!=row.captured_version || row.accepted_attempt_id!=row.captured_attempt || row.stale!=row.was_stale || row.annotations_need_review!=snapshot.needsReview ||
             store.json(annotations.summary(row,true).tags)!=store.json(snapshot.tags)
     }
-    boolean analysisChanged(Map selection) { store.one('SELECT current_analysis_id FROM scan WHERE id=?',selection.scan_id).current_analysis_id!=selection.analysis_id }
+    boolean analysisChanged(Map selection) {
+        Map current=store.one('SELECT current_analysis_id,current_signature_run_id FROM scan WHERE id=?',selection.scan_id)
+        current.current_analysis_id!=selection.analysis_id || current.current_signature_run_id!=selection.signature_run_id ||
+            store.one('SELECT revision FROM signature_clock WHERE id=1').revision!=selection.signature_catalog_revision
+    }
     Map get(UUID id,String actor,String cursor,int limit) {
         store.tx.execute { status ->
             store.one('SELECT id FROM annotation_clock WHERE id=1 FOR SHARE')

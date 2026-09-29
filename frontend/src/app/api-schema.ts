@@ -112,7 +112,7 @@ export interface paths {
         /** @description Scan history, oldest first with a stable committed cutoff. */
         get: operations["scans"];
         put?: never;
-        /** @description Queue whole registered roots, inventory metadata, hash only repeated-size regular files, then publish duplicate analysis. At most ten unfinished jobs and five creations per actor per minute. */
+        /** @description Queue whole registered roots, inventory metadata, hash only repeated-size regular files, then publish duplicate analysis. At most ten unfinished jobs and five creations per actor per minute. Optional includeSignatureCandidates captures explicit consent and a catalog revision. */
         post: operations["createScan"];
         delete?: never;
         options?: never;
@@ -347,7 +347,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Database-only AND filters. Text contains/exact compares literal UTF-8 bytes, case-sensitive; % and _ are data. Raw base64 supports non-UTF-8 names. Sorts use raw bytes, exact integers/nanoseconds, UUID tiebreaker and nulls last. Cursors bind filters, committed entry cutoff and evidence/query/annotation revisions; changes return 409 CURSOR_STALE. Future signature/content filters return 422. */
+        /** @description Database-only AND filters. Text contains/exact compares literal UTF-8 bytes, case-sensitive; % and _ are data. Raw base64 supports non-UTF-8 names. Sorts use raw bytes, exact integers/nanoseconds, UUID tiebreaker and nulls last. Cursors bind filters, committed entry cutoff and evidence/query/annotation revisions; changes return 409 CURSOR_STALE. Signature filters use current guarded findings; future content filters return 422. */
         post: operations["searchFiles"];
         delete?: never;
         options?: never;
@@ -493,6 +493,285 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/signature-limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signatureLimits"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signatures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Immutable catalog snapshot with sequence keyset pagination. Pass catalogRevision from the first page on later pages. */
+        get: operations["signatures"];
+        put?: never;
+        post: operations["createSignature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signatures/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signature"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["editSignature"];
+        trace?: never;
+    };
+    "/signature-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Raw UTF-8 upload, bounded before parsing; JSON strict duplicate-key detection, Commons CSV RFC4180 with exact documented header. Default 1 MiB / 2000 rows. Staging has no active catalog effects. */
+        post: operations["stageSignatureImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-imports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signatureImport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-imports/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Actor-owned, valid staging only. Optimistic catalog and per-record revision checks; one atomic transaction or no changes. Applied retries remain idempotent. */
+        post: operations["applySignatureImport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{id}/signature-check-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Database-only count and exact byte estimate for eligible previously unhashed signature-size candidates in this frozen scan; captures catalog/evidence revision and expires after one hour. */
+        post: operations["signatureCheckPreview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-check-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["checkSignatures"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/observations/{id}/signatures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Current guarded coverage by default; optional published runId exposes original historical status. Current and active flags explicitly identify obsolete findings. */
+        get: operations["observationSignatures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{id}/signature-findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signatureFindings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/scans/{id}/signature-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signatureRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Durable database artifact job; snapshot metadata, bounded batches, reserved quota, checksum then atomic readiness. No source access. */
+        post: operations["exportSignatures"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-exports/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["signatureExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-exports/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pauseSignatureExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-exports/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resumeSignatureExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-exports/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelSignatureExport"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/signature-exports/{id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Authenticated artifact ID only. READY required. JSON preserves exact metadata. CSV neutralizes textual spreadsheet formula/control prefixes and may change display metadata; raw basename base64 remains reversible. */
+        get: operations["downloadSignatureExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -509,7 +788,7 @@ export interface components {
             name: string;
             version: string;
             /** @constant */
-            milestone: "M3";
+            milestone: "M4";
             platform: string;
             /** @constant */
             sourcePolicy: "READ_ONLY";
@@ -556,10 +835,10 @@ export interface components {
              */
             hashAlgorithm: "SHA-256";
             /**
+             * @description Default off. Hash the union of duplicate sizes and enabled signature sizes in the captured creation-time catalog revision.
              * @default false
-             * @constant
              */
-            includeSignatureCandidates: false;
+            includeSignatureCandidates: boolean;
             /**
              * @default false
              * @constant
@@ -580,9 +859,9 @@ export interface components {
             /** Format: uuid */
             scanId: string;
             /** @enum {string} */
-            type: "INVENTORY" | "SCAN" | "HASH";
+            type: "INVENTORY" | "SCAN" | "HASH" | "SIGNATURE_CHECK" | "SIGNATURE_MATCH";
             /** @enum {string} */
-            phase: "INVENTORY" | "CANDIDATE_SELECTION" | "HASHING" | "ANALYSIS";
+            phase: "INVENTORY" | "CANDIDATE_SELECTION" | "HASHING" | "ANALYSIS" | "SIGNATURE_MATCH";
             /** @enum {string} */
             state: "QUEUED" | "RUNNING" | "PAUSE_REQUESTED" | "PAUSED" | "CANCEL_REQUESTED" | "CANCELLED" | "INTERRUPTED" | "COMPLETED" | "COMPLETED_WITH_ERRORS" | "FAILED";
             version: string;
@@ -622,6 +901,7 @@ export interface components {
             reusedFiles: string;
             physicalBytesRead: string;
             usefulBytesHashed: string;
+            catalogRevision?: string | null;
         };
         ScanSource: {
             /** Format: uuid */
@@ -651,6 +931,9 @@ export interface components {
             evidenceRevision: string;
             latestJob: components["schemas"]["Job"];
             activeHashJobs: components["schemas"]["Job"][];
+            includeSignatureCandidates?: boolean;
+            signatureCatalogRevision?: string;
+            signatureRunId?: string | null;
         };
         Observation: {
             /** Format: uuid */
@@ -908,6 +1191,16 @@ export interface components {
             hasError?: boolean;
             stale?: boolean;
             annotationsNeedReview?: boolean;
+            /** Format: uuid */
+            signatureId?: string;
+            /** Format: uuid */
+            signatureTagId?: string;
+            /** @enum {string} */
+            signatureStatus?: "MATCHED" | "NO_MATCH_IN_CHECKED_CATALOG" | "UNDETERMINED";
+            /** @enum {string} */
+            signatureCheckStatus?: "CHECKED_HASH" | "EXCLUDED_BY_SIZE" | "HASH_REQUIRED" | "STALE" | "READ_ERROR" | "CATALOG_NOT_CHECKED";
+            /** @enum {string} */
+            tagScope?: "MANUAL" | "EFFECTIVE";
         };
         SearchQuery: {
             filters?: components["schemas"]["SearchFilters"];
@@ -938,6 +1231,11 @@ export interface components {
             stale: boolean;
             hasError: boolean;
             annotation: components["schemas"]["Annotation"];
+            /** @enum {string} */
+            signatureStatus?: "MATCHED" | "NO_MATCH_IN_CHECKED_CATALOG" | "UNDETERMINED";
+            /** @enum {string} */
+            signatureCheckStatus?: "CHECKED_HASH" | "EXCLUDED_BY_SIZE" | "HASH_REQUIRED" | "STALE" | "READ_ERROR" | "CATALOG_NOT_CHECKED";
+            signatureCatalogRevision?: string | null;
         };
         SearchPage: {
             items: components["schemas"]["SearchEntry"][];
@@ -992,6 +1290,8 @@ export interface components {
             query: components["schemas"]["SearchQuery"];
             /** @description Members lacking size. totalBytes sums known sizes only. */
             unknownSizes: string;
+            signatureCatalogRevision?: string;
+            signatureRunId?: string | null;
         };
         SelectionDetail: components["schemas"]["Selection"] & {
             needsReview: boolean;
@@ -1018,6 +1318,175 @@ export interface components {
         TagUpdate: {
             label: string;
             expectedVersion: string;
+        };
+        /** @description Create/edit full fields. For create-from-observation supply observationId and omit sizeBytes, algorithm, checksum and both filename fields; the server requires accepted evidence. Edits require expectedRevision. Tags resolve reusable normalized labels, retaining revision snapshots. UI edits may supply tagIds instead of tags to keep stable references through tag renames. */
+        SignatureWrite: {
+            name: string;
+            memo?: string;
+            tags?: string[];
+            sizeBytes?: string;
+            /** @enum {string} */
+            algorithm?: "SHA-256";
+            checksum?: string;
+            filename?: string | null;
+            filenameBytesBase64?: string | null;
+            /** @enum {string} */
+            filenameMatchMode?: "ADVISORY" | "REQUIRED_EXACT";
+            enabled?: boolean;
+            sourceNote?: string;
+            expectedRevision?: string;
+            /** Format: uuid */
+            observationId?: string;
+            tagIds?: string[];
+        };
+        Signature: {
+            name: string;
+            memo: string;
+            sizeBytes: string;
+            /** @enum {string} */
+            algorithm: "SHA-256";
+            checksum: string;
+            filename: string | null;
+            filenameBytesBase64: string | null;
+            /** @enum {string} */
+            filenameMatchMode: "ADVISORY" | "REQUIRED_EXACT";
+            enabled: boolean;
+            sourceNote: string;
+            tags: components["schemas"]["Tag"][];
+            /** Format: uuid */
+            id: string;
+            revision: string;
+            catalogRevision: string;
+            /** @enum {string} */
+            origin: "MANUAL" | "FROM_OBSERVATION" | "IMPORT";
+            observationId: string | null;
+            attemptId: string | null;
+            createdAt: string;
+            updatedAt: string;
+        };
+        SignaturePage: {
+            items: components["schemas"]["Signature"][];
+            nextCursor: string | null;
+            catalogRevision: string;
+        };
+        SignatureLimits: {
+            importBytes: number;
+            importRows: number;
+            exportBytes: number;
+        };
+        SignatureCoverage: {
+            runId: string | null;
+            catalogRevision: string | null;
+            catalogCurrent: boolean;
+            /** @enum {string} */
+            matchStatus: "MATCHED" | "NO_MATCH_IN_CHECKED_CATALOG" | "UNDETERMINED";
+            /** @enum {string} */
+            checkStatus: "CHECKED_HASH" | "EXCLUDED_BY_SIZE" | "HASH_REQUIRED" | "STALE" | "READ_ERROR" | "CATALOG_NOT_CHECKED";
+            checkedAt: string | null;
+            attemptId: string | null;
+        };
+        SignatureFindings: components["schemas"]["SignatureCoverage"] & {
+            items: {
+                signature: components["schemas"]["Signature"];
+                matchedAt: string;
+                active: boolean;
+            }[];
+            nextCursor: string | null;
+            /** Format: uuid */
+            observationId: string;
+            current: boolean;
+        };
+        SignatureCoveragePage: {
+            items: (components["schemas"]["SignatureCoverage"] & {
+                /** Format: uuid */
+                observationId: string;
+                displayPath: string;
+            })[];
+            nextCursor: string | null;
+        };
+        SignatureRunPage: {
+            items: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                jobId: string;
+                catalogRevision: string;
+                evidenceRevision: string;
+                publishedAt: string;
+                current: boolean;
+            }[];
+            nextCursor: string | null;
+        };
+        SignaturePreview: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            scanId: string;
+            catalogRevision: string;
+            candidateFiles: string;
+            candidateBytes: string;
+            expiresAt: string;
+        };
+        SignatureImport: {
+            items: {
+                row: number;
+                error: string | null;
+                proposed: {
+                    /** Format: uuid */
+                    id: string;
+                    expectedRevision: string;
+                    name: string;
+                    memo?: string;
+                    tags?: string[];
+                    sizeBytes: string;
+                    /** @enum {string} */
+                    algorithm?: "SHA-256";
+                    checksum: string;
+                    filename?: string | null;
+                    filenameBytesBase64?: string | null;
+                    /** @enum {string} */
+                    filenameMatchMode?: "ADVISORY" | "REQUIRED_EXACT";
+                    enabled?: boolean;
+                    sourceNote?: string;
+                } | null;
+            }[];
+            nextCursor: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "VALID" | "INVALID" | "APPLIED";
+            /** @enum {string} */
+            format: "JSON" | "CSV";
+            /** @enum {string} */
+            policy: "REJECT_EXISTING_ID" | "UPDATE_BY_ID";
+            catalogRevision: string;
+            rowCount: number;
+            errorCount: number;
+            expiresAt: string;
+            appliedCatalogRevision: string | null;
+        };
+        SignatureImportApplied: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "APPLIED";
+            catalogRevision: string;
+            rowCount: number;
+        };
+        SignatureExport: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            state: "QUEUED" | "BUILDING" | "PAUSED" | "READY" | "CANCELLED" | "FAILED";
+            /** @enum {string} */
+            format: "JSON" | "CSV";
+            catalogRevision: string;
+            rowCount: string;
+            byteCount: string;
+            sha256: string | null;
+            errorCode: string | null;
+            createdAt: string;
+            completedAt: string | null;
         };
     };
     responses: {
@@ -2038,6 +2507,651 @@ export interface operations {
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
             503: components["responses"]["Problem"];
+        };
+    };
+    signatureLimits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureLimits"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signatures: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                query?: string;
+                catalogRevision?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignaturePage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    createSignature: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignatureWrite"];
+            };
+        };
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signature"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signature: {
+        parameters: {
+            query?: {
+                revision?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signature"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    editSignature: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SignatureWrite"];
+            };
+        };
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Signature"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    stageSignatureImport: {
+        parameters: {
+            query: {
+                format: "JSON" | "CSV";
+                policy?: "REJECT_EXISTING_ID" | "UPDATE_BY_ID";
+            };
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+                "application/json": Record<string, never>;
+                "text/csv": string;
+            };
+        };
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureImport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signatureImport: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureImport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    applySignatureImport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedCatalogRevision: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureImportApplied"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signatureCheckPreview: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignaturePreview"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    checkSignatures: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    previewId: string;
+                    /** @constant */
+                    allowBodyReads: true;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HashCreated"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    observationSignatures: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                runId?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureFindings"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signatureFindings: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureCoveragePage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signatureRuns: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureRunPage"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    exportSignatures: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    format: "JSON" | "CSV";
+                    catalogRevision: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    signatureExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    pauseSignatureExport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    resumeSignatureExport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    cancelSignatureExport: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Exact current XSRF-TOKEN cookie value; session cookie is separately HttpOnly. */
+                "X-XSRF-TOKEN": components["parameters"]["Csrf"];
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stored result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignatureExport"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            413: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+            503: components["responses"]["Problem"];
+        };
+    };
+    downloadSignatureExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Complete immutable catalog artifact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                    "text/csv": string;
+                };
+            };
+            409: components["responses"]["Problem"];
         };
     };
 }

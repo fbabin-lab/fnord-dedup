@@ -4,6 +4,7 @@ import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { Api, Scan, SourceList, SearchQuery, SearchFilters, SearchPage, SearchEntry, Observation, Directory, SelectionDetail, Tag, AnnotationBatch, ReviewState, errorMessage } from './api';
 import { AnnotationEditor, REVIEW_STATES } from './annotation-editor';
+import { SignatureCoverage } from './signature-coverage';
 import { TagPicker } from './tag-picker';
 
 type TreeNode={id:string;label:string;depth:number;expanded:boolean;next:string|null};
@@ -15,9 +16,9 @@ export function exactUnit(value:string|null|undefined): string {
 const textFields=[
   ['nameContains','Filename contains'],['pathContains','Path contains'],['nameExact','Exact filename'],['pathExact','Exact relative path'],['extension','Extension'],
   ['minBytes','Minimum bytes (inclusive)'],['maxBytes','Maximum bytes (inclusive)'],['mtimeFrom','Modified from (UTC, inclusive)'],['mtimeTo','Modified until (UTC, exclusive)'],
-  ['checksum','Exact SHA-256'],['checksumPrefix','SHA-256 prefix'],['memoContains','Memo contains'],['nameBytesBase64','Exact name bytes (base64)'],['pathBytesBase64','Exact path bytes (base64)']
+  ['signatureId','Signature ID'],['signatureTagId','Signature tag ID'],['checksum','Exact SHA-256'],['checksumPrefix','SHA-256 prefix'],['memoContains','Memo contains'],['nameBytesBase64','Exact name bytes (base64)'],['pathBytesBase64','Exact path bytes (base64)']
 ] as const;
-@Component({selector:'app-explorer',imports:[RouterLink,ReactiveFormsModule,MatButtonModule,AnnotationEditor,TagPicker],template:`
+@Component({selector:'app-explorer',imports:[RouterLink,ReactiveFormsModule,MatButtonModule,AnnotationEditor,TagPicker,SignatureCoverage],template:`
   <a [routerLink]="['/scans',id]">← Scan progress and duplicate groups</a>
   <p class="eyebrow">STORED FILE EXPLORER</p><h1>{{ scan()?.name ?? 'Loading scan…' }}</h1>
   <p class="lede">Search observations, record location notes, and mark files for review.</p>
@@ -62,6 +63,9 @@ const textFields=[
               <label>Duplicate state <select formControlName="duplicateState" aria-label="Duplicate state"><option value="">Any duplicate state</option><option>DUPLICATE</option><option>STALE</option><option>NOT_GROUPED</option></select></label>
               <label>Review-state filter <select formControlName="reviewState" aria-label="Review-state filter"><option value="">Any review state</option>@for (state of states; track state) { <option [value]="state">{{ state }}</option> }</select></label>
               @for (flag of flags; track flag[0]) { <label>{{ flag[1] }} <select [formControlName]="flag[0]" [attr.aria-label]="flag[1]"><option value="">Either</option><option value="true">Yes</option><option value="false">No</option></select></label> }
+              <label>Signature match status <select formControlName="signatureStatus" aria-label="Signature match status"><option value="">Any status</option><option>MATCHED</option><option>NO_MATCH_IN_CHECKED_CATALOG</option><option>UNDETERMINED</option></select></label>
+              <label>Signature check status <select formControlName="signatureCheckStatus" aria-label="Signature check status"><option value="">Any coverage</option>@for (status of signatureChecks; track status) { <option>{{ status }}</option> }</select></label>
+              <label>Tag scope <select formControlName="tagScope" aria-label="Tag scope"><option value="">Manual tags</option><option value="EFFECTIVE">Manual and active derived tags</option></select></label>
               <label>Tag matching <select formControlName="tagMode" aria-label="Tag matching"><option value="ANY">Any selected tag</option><option value="ALL">All selected tags</option></select></label>
             </div><app-tag-picker label="Filter tags" [selected]="filterTags()" (selectedChange)="filterTags.set($event); invalidate()" /></details>
             <p class="small muted">Filters combine with AND. Text is literal and case-sensitive; % and _ are ordinary characters. UTC dates use a half-open interval. Empty fields are ignored.</p>
@@ -80,7 +84,7 @@ const textFields=[
                     @else { <button mat-button (click)="inspect(entry)">{{ entry.name }}</button> }
                     <small>{{ entry.path }}</small><button mat-button (click)="inspect(entry)">Details</button></td>
                   <td>{{ entry.entryType }}</td><td class="exact-number">{{ entry.sizeBytes ?? 'Unknown' }}<small>{{ units(entry.sizeBytes) }}</small></td><td class="small">{{ entry.mtime ?? 'Unknown' }}</td>
-                  <td><span class="badge" [class.blocked]="entry.stale">{{ entry.hashStatus }}</span><p class="small">{{ entry.duplicateState }} · {{ entry.annotation.reviewState }}</p>
+                  <td><span class="badge" [class.blocked]="entry.stale">{{ entry.hashStatus }}</span><p class="small">{{ entry.signatureStatus ?? 'UNDETERMINED' }} · {{ entry.signatureCheckStatus ?? 'CATALOG_NOT_CHECKED' }}</p><p class="small">{{ entry.duplicateState }} · {{ entry.annotation.reviewState }}</p>
                     @for (tag of entry.annotation.tags; track tag.id) { <span class="tag-label">{{ tag.label }}</span> }
                     @if (entry.annotation.needsReview) { <p class="small">File changed; review existing annotations.</p> }
                     @if (entry.hasError) { <p class="small">Observation has errors.</p> }</td></tr>
@@ -115,6 +119,7 @@ const textFields=[
         @if (entry.hash?.status==='STALE') { <p class="notice">Historical checksum invalidated. Use a new scan to establish fresh observations.</p> }
         <a [routerLink]="['/scans',id]">Open scan hashing and duplicate analysis</a>
       </section>
+      <app-signature-coverage [observationId]="entry.id" [scanId]="id" />
       <app-annotation-editor [observation]="entry" (saved)="annotationSaved()" />
     }
   }
@@ -128,9 +133,10 @@ export class Explorer implements OnInit,OnDestroy {
   readonly filterTags=signal<Tag[]>([]); readonly addTags=signal<Tag[]>([]); readonly removeTags=signal<Tag[]>([]);
   readonly bulkState=new FormControl<ReviewState|''>('',{nonNullable:true}); readonly states=REVIEW_STATES; readonly units=exactUnit;
   readonly extraFields=textFields.slice(2); readonly entryTypes=['REGULAR','DIRECTORY','SYMLINK','SPECIAL','UNKNOWN'];
+  readonly signatureChecks=['CHECKED_HASH','EXCLUDED_BY_SIZE','HASH_REQUIRED','STALE','READ_ERROR','CATALOG_NOT_CHECKED'];
   readonly hashStates=['ACCEPTED','PENDING','FAILED','STALE','INELIGIBLE','NOT_REQUESTED','NOT_REQUESTED_UNIQUE_SIZE'];
   readonly flags=[['hasError','Has errors'],['stale','Stale evidence'],['annotationsNeedReview','Notes need review']];
-  readonly filters=new FormGroup(Object.fromEntries([...textFields.map(([key])=>key),'sourceId','entryType','hashStatus','duplicateState','reviewState','hasError','stale','annotationsNeedReview','tagMode','sort','direction','scope'].map(key=>[key,new FormControl(({sort:'path',direction:'ASC',tagMode:'ANY',scope:'all'} as Record<string,string>)[key] ?? '',{nonNullable:true})])));
+  readonly filters=new FormGroup(Object.fromEntries([...textFields.map(([key])=>key),'sourceId','entryType','signatureStatus','signatureCheckStatus','tagScope','hashStatus','duplicateState','reviewState','hasError','stale','annotationsNeedReview','tagMode','sort','direction','scope'].map(key=>[key,new FormControl(({sort:'path',direction:'ASC',tagMode:'ANY',scope:'all'} as Record<string,string>)[key] ?? '',{nonNullable:true})])));
   private activeQuery:SearchQuery={}; private generation=0; private detailGeneration=0; private timer?:ReturnType<typeof setTimeout>; private destroyed=false;
   private hashRequest?:{id:string;key:string};
   private batch?:{payload:string;key:string}; private expanding=new Set<string>();

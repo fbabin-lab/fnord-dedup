@@ -1,4 +1,85 @@
-# M3 verification — 2026-09-29
+# M4 verification — 2026-09-29
+
+Verified code commit: `5d9ebb1af679fa95a4ee8f23e3f8819ec642a105`  
+Verified code tree: `79448d8e8afe6efb49f39e5ff01815bef2edc91b`  
+Branch: `feature/m4-signature-catalog`  
+Parent: M3 draft, `d93823aec8d4f967b6c506599e9fcc4ffbc35942`
+
+M4 implementation is ready for review, stacked on the unmerged M3 draft (#4). It adds versioned signatures, exact matching/coverage with historical provenance, explicit signature-size reads, atomic staged JSON/CSV imports, durable immutable catalog artifacts, and catalog/finding UI. Default scans remain duplicate-size only; manual location notes are independent. **Deployment acceptance remains blocked** by the unverified native PostgreSQL concurrency/WAL, actual process-kill recovery and Docker/read-only-mount gates. Feature progress requested by the user does not certify those boundaries. Text indexing, byte verification, review plans and general file-report exports are not claimed.
+
+## Executed M4 checks
+
+The final runs completed September 29, 2026, against the code above. This record is a documentation-only follow-up commit. **94 tests/scenarios passed; two native-only cases were skipped.**
+
+| Check | Result |
+|---|---|
+| Gradle unit/native suite | PASS: 16 tests, zero failures/skips. Includes nine Linux adapter cases and source/mount/security regressions. |
+| PostgreSQL-engine integration | PASS in PGlite: 58 passed, two native-only skips. Thirteen signature cases, eleven explorer cases, seventeen hash cases, nine executed inventory cases, eight HTTP/security cases. Flyway V1–V5 migrated each isolated test schema. |
+| Angular tests | PASS: 16 tests, zero failures/errors. JUnit report inspected; signature consent/retry, exact decimal size, preserved conflicting draft/stable tag IDs, observation-derived fingerprint and escaped derived labels included. |
+| Angular production build | PASS without Angular diagnostics: 562.23 kB initial bundle; estimated transfer 129.51 kB. |
+| Locked API generation | PASS: `npm run api:check`; generated TypeScript equals staged OpenAPI. |
+| Browser suite | PASS: four scenarios in 2.1 minutes. Production Angular/CSP, real Spring API, PGlite and real native reads on generated fixtures. Final run includes the selection/catalog revision fix and final responsive styling. |
+| Production JAR | PASS: ZIP/CRC valid; 42,671,960 bytes, 361 entries. SHA-256 `9907e4d44bab99bcaeab8bea75109033daa2336d7e1db7010fb7ea3200986b33`. No fixture server, fixture registry or integration-test classes. |
+| Repository review | PASS: whitespace, unchanged specification/license/native adapter/V1–V4, and exact local/remote code-tree equality. No credentials, generated fixtures, build outputs, vendored dependencies or test reports committed. |
+
+The M4 browser scenario reused a real scan of 1,255 generated observations. It staged an invalid JSON upload, verified apply was disabled, staged a valid catalog and confirmed no active mutation before apply. A 24-byte unique-size file then showed HASH_REQUIRED with no accepted checksum. The UI preview reported exactly one file / 24 bytes; explicit authorization produced an accepted SHA-256 and an advisory-filename match for renamed content. The browser displayed the inert HTML-like signature name, multiline/formula-like memo and tag as text; no injected image appeared. It created another signature from that accepted observation, disabled the original label, and verified the independent manual memo survived. A durable JSON export reached READY and downloaded exact catalog metadata by artifact ID. Desktop/findings and 680-pixel-wide screenshots were inspected; controls/table wrap without document overflow. The existing explorer two-tab/bulk/rescan, authentication/CSRF/logout, and inventory pause/resume/disconnect/manual-hash scenarios also passed.
+
+Initial failures were an old assertion rejecting the newly supported scan option, internal UUID-versus-serialized-string comparisons in retry responses, and two test-fixture/assertion mistakes (a parsed tag UUID cast and an expected UI phrase). They were corrected and the suites rerun. Review added scan-share locking for a consistent current/historical finding response, immediate guarded status when explicitly requesting the current run, stable tag-ID editing after tag rename, catalog/run revisions on frozen selections, and scan-opt-in audit details. The final backend/browser runs include those corrections. The final visual pass also clips the unfocused skip link, preventing it from appearing in full-page captures, while preserving keyboard focus behavior.
+
+## M4 acceptance evidence
+
+| Cases | Evidence and limits |
+|---|---|
+| AT-34 | Exact size/algorithm/full digest matches expose all distinct labels, memos, tags, revision and match time. Same-size different content does not match. |
+| AT-35 | Renamed hello fixtures match ADVISORY; REQUIRED_EXACT limits matches to the exact raw basename. Raw-byte identity is preserved; labels never classify files by filename alone. |
+| AT-36 | Default unique-size file remains unread/HASH_REQUIRED; preview is database-only; false consent rejects; explicit idempotent request reads once and resolves MATCHED. Unrelated unique sizes stay unhashed/EXCLUDED_BY_SIZE for that catalog. Browser exercises the same flow with 24 bytes. |
+| AT-37 | Opted-in scan hashes duplicate-size union captured signature-size candidates, one task/attempt with both reasons for overlap. A later catalog addition does not expand captured read consent. |
+| AT-38 | A 105-file generated case edits/disables the catalog after the first 100-check batch. The old run publishes its frozen revision; a later run becomes current with no additional bodies read. Historical findings persist. Database-only pause/resume works while fixture source opening is disabled. Current invalidated evidence is not active even when that run is requested explicitly. Native simultaneous session/process tests remain open. |
+| AT-39 | Manual memo/tag survives disabling derived labels. Search supports signature ID/tag/status/coverage and manual versus effective tag IDs. Renaming a reusable tag preserves its ID on a later signature edit while old signature labels remain historical. Frozen selections retain IDs and require fresh review after catalog/run changes. |
+| AT-40 | JSON/CSV validation covers algorithms, malformed digests, negative/overflow/numeric sizes, invalid base64, duplicate JSON keys/CSV headers, schema versions, duplicate record IDs, distinct same-fingerprint labels, expected revisions, byte/row limits, dry run and explicit apply. An injected constraint failure after earlier rows/tags were written rolls back catalog, tags, clock, apply state and retry record; the corrected retry succeeds atomically. Stale catalogs require restaging. |
+| AT-41 | An unhashed observation refuses creation without reading it. A separately authorized hash supplies the actual fingerprint; supplied override fields reject. A raw non-UTF-8 basename database fixture preserves exact bytes and required-exact matching. Native raw-byte traversal remains covered by adapter tests; the M4 fixture does not claim a new host-mount test. Browser creates from accepted native evidence. |
+| Catalog export groundwork | Captured revision survives an edit during paused assembly. RFC4180 quoting, CR/LF/quotes, formula neutralization, reversible raw basename base64, JSON exact metadata, stored bytes/SHA-256, READY-only download, pause/resume/cancel and quota/oversize failure are covered. Incomplete failed/cancelled chunks do not download. This is catalog exchange only; general AT-61–AT-67 file-report/plan formats remain M7. |
+| AT-43 / AT-45 regression | Signature/import/check/export mutations require CSRF; anonymous access fails; bounded raw HTTP upload returns structured 413; nonexistent artifact download returns 404. Browser and Angular tests render untrusted labels/memos as text. |
+
+## Commands and environment boundary
+
+The existing local Gradle runner supplied Java/proxy configuration to the committed wrapper; final backend command:
+
+```bash
+FNORD_TEST_SQL_HARNESS=pglite \
+SPRING_FLYWAY_POSTGRESQL_TRANSACTIONAL_LOCK=false \
+FNORD_TEST_DB_URL='jdbc:postgresql://127.0.0.1:55439/postgres?preferQueryMode=simple' \
+./gradlew test integrationTest bootJar --offline
+```
+
+Frontend commands ran from `frontend`:
+
+```bash
+npm test -- --watch=false --reporters=junit --output-file='<scratch report path>'
+npm run build
+npm run api:check
+```
+
+Browser execution used the existing generated-only fixture launcher and same-origin production-CSP proxy:
+
+```bash
+FNORD_TEST_FIXTURE_MODE=generated-only ./gradlew inventoryBrowserFixture --offline
+FNORD_EXPECT_NATIVE_FIXTURES=true FNORD_TEST_URL=http://127.0.0.1:18088 \
+FNORD_TEST_PASSWORD='<disposable test password>' \
+FNORD_CHROMIUM_EXECUTABLE='<Chromium 153.0.8010.0 executable>' npm run e2e
+```
+
+PGlite 0.5.8 embeds PostgreSQL 18.3 through pglite-socket 0.2.11. Its single-engine SQL transactions are not independent native PostgreSQL sessions, WAL durability or persistent process-crash certification. Simple JDBC mode and the Flyway transactional-lock override are test-harness accommodations only; production retains pinned PostgreSQL 18.6. Java 21, Gradle 8.14.3, Groovy 5.0.8, Boot 4.1.1, JNA 5.18.1, Angular/Material 22.0.7, TypeScript 6.0.3, Node 24.19, Vitest 4.0.18 and Playwright 1.63.0 remain unchanged. OpenAPI generation uses isolated 7.13.0 / TypeScript 5.9.3. New locked Commons CSV 1.14.1 uses Commons IO 2.20.0 and the Boot-managed Commons Codec 1.21.0. The dependency lock was regenerated with `./gradlew resolveDependencies --write-locks`; no peer checks were disabled.
+
+No operator sources or host mounts were changed. Native fixture access uses the established test-only mount-guard seam, absent from the production JAR. Real Docker read-only binds, non-root permissions, blocked network I/O, concurrent native database sessions, actual process-kill/restart and backup/restore still require the acceptance host. Million-row performance and sustained contention are unmeasured. Catalog/import/finding/audit/ready-artifact retention is indefinite and bounded export reservations can refuse later exports; monitor PostgreSQL growth as documented in OPERATIONS.md.
+
+On a Docker-capable Linux/amd64 host, run `./scripts/test-all` with harness overrides unset and `./scripts/smoke-test`, then the explicit restart/concurrency/mount/scale gates. The two native-only cases remain skipped here. Work stops at the reviewable **M4 implementation milestone**. Next is **M5: bounded text indexing and content search**, with default-off consent and no implicit hashing. Nothing was merged or deployed.
+
+---
+
+The following records are historical and describe their earlier code commits, not the M4 implementation.
+
+# Historical M3 verification — 2026-09-29
 
 Verified code commit: `fd94c190df65b737cae5d0e03574314758ba9616`  
 Verified code tree: `9005b06ac6debd044eba6e976f0d6f7380e3817f`  

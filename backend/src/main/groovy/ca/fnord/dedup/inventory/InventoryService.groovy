@@ -56,6 +56,7 @@ class InventoryService {
                 if (unsafeFast) source.unsafeFast = true
                 definitions.add(source)
             }
+            if (unsafeFast) definitions.each { SourceDefinition source -> source.unsafeFast = true }
             UUID scanId = UUID.randomUUID(), jobId = UUID.randomUUID()
             store.jdbc.update('INSERT INTO scan(id,name,configuration_revision,options,signature_catalog_revision) VALUES (?,?,?,?::jsonb,?)',scanId,body.name,sources.revision,store.json([hashAlgorithm:'SHA-256',inventoryOnly:false,includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),textIndexingEnabled:false,unsafeFast:unsafeFast]),SignaturePipeline.current(store))
             store.jdbc.update("INSERT INTO job(id,scan_id,type,phase,state) VALUES (?,?,'SCAN','INVENTORY','QUEUED')",jobId,scanId)

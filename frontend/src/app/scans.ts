@@ -24,6 +24,8 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
           } @empty { <p>No sources configured. <a routerLink="/sources">Review source setup</a>.</p> }
         </fieldset>
         <label class="source-choice"><input type="checkbox" [formControl]="includeSignatures" (change)="resetKey()"> Include known-signature size candidates</label><p class="small muted">Off by default. Enabling this reads additional unique-size files matching enabled signature sizes in the catalog captured when the scan starts.</p>
+        <label class="source-choice"><input type="checkbox" [formControl]="unsafeFast" (change)="resetKey()"> Unsafe fast mode</label>
+        <p class="notice">Unsafe fast mode bypasses mount, overlap and consistency validation for speed. Results do not carry the normal validated evidence guarantees. The source is still expected to be mounted read-only.</p>
         <button mat-flat-button type="submit" [disabled]="name.invalid || selected().size === 0 || busy()">{{ busy() ? 'Queueing…' : 'Start scan' }}</button>
       </form>
     </section>
@@ -45,7 +47,8 @@ export class Scans implements OnInit {
   private readonly router = inject(Router);
   readonly name = new FormControl('', {nonNullable:true, validators:[Validators.required, Validators.maxLength(200)]});
   readonly includeSignatures = new FormControl(false,{nonNullable:true});
-  readonly form = new FormGroup({name:this.name,includeSignatures:this.includeSignatures});
+  readonly unsafeFast = new FormControl(false,{nonNullable:true});
+  readonly form = new FormGroup({name:this.name,includeSignatures:this.includeSignatures,unsafeFast:this.unsafeFast});
   readonly selected = signal(new Set<string>());
   readonly sources = signal<SourceList | null>(null);
   readonly page = signal<ScanPage | null>(null);
@@ -70,7 +73,7 @@ export class Scans implements OnInit {
     if (this.name.invalid || this.busy() || this.selected().size === 0) return;
     this.busy.set(true); this.error.set('');
     try {
-      const created = await this.api.createScan({name:this.name.value, sourceIds:[...this.selected()], hashAlgorithm:'SHA-256', includeSignatureCandidates:this.includeSignatures.value, textIndexingEnabled:false},this.requestKey);
+      const created = await this.api.createScan({name:this.name.value, sourceIds:[...this.selected()], hashAlgorithm:'SHA-256', includeSignatureCandidates:this.includeSignatures.value, textIndexingEnabled:false, unsafeFast:this.unsafeFast.value},this.requestKey);
       await this.router.navigate(['/scans',created.scanId]);
     } catch (e) { this.error.set(errorMessage(e)); }
     finally { this.busy.set(false); }

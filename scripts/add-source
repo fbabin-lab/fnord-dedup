@@ -229,4 +229,114 @@ def update_compose(text: str, key: str, source_var: str, export_var: str, host_p
     else:
         environment_end = block_end(lines, environment, 4)
         existing_names = [lines[i].strip().split(":", 1)[0] for i in range(environment + 1, environment_end) if ":" in lines[i]]
-        if "SPRING_CONFIG_ADD
+        if "SPRING_CONFIG_ADDITIONAL_LOCATION" not in existing_names:
+            lines.insert(environment_end, config_line)
+            environment_end += 1
+            changed = True
+        if export_var not in existing_names:
+            lines.insert(environment_end, env_line)
+            changed = True
+
+    # Recalculate after possible insertion.
+    backend, backend_end = find_backend_block(lines)
+    volumes = find_yaml_key(lines, "volumes", 4, backend + 1, backend_end)
+    if volumes is None:
+        insert_at = backend_end
+        lines[insert_at:insert_at] = [
+            "    volumes:\n",
+            "      - type: bind\n",
+            f"        source: ${{{source_var}:?Set the existing absolute host directory}}\n",
+            f"        target: /sources/{key}\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+            "          propagation: rprivate\n",
+            "      - type: bind\n",
+            "        source: ./application.yml\n",
+            "        target: /config/application.yml\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+        ]
+        changed = True
+        return "".join(lines), changed
+
+    volumes_end = block_end(lines, volumes, 4)
+    target = f"/sources/{key}"
+    existing = compose_volume_block(lines, volumes, volumes_end, target)
+    if existing is not None:
+        start, end = existing
+        block = [line.strip() for line in lines[start:end]]
+        source_values = [line.split(":", 1)[1].strip() for line in block if line.startswith("source:")]
+        if source_values:
+            expected_ref = f"${{{source_var}"
+            if not (source_values[0] == host_path or source_values[0].startswith(expected_ref)):
+                fail(f"Compose target {target!r} already uses source {source_values[0]!r}")
+        if "read_only: true" not in block:
+            fail(f"Compose target {target!r} exists but is not explicitly read_only: true")
+    else:
+        mount = [
+            "      - type: bind\n",
+            f"        source: ${{{source_var}:?Set the existing absolute host directory}}\n",
+            f"        target: {target}\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+            "          propagation: rprivate\n",
+        ]
+        lines[volumes + 1:volumes + 1] = mount
+        changed = True
+
+    # The backend must also receive the private application registry.
+    backend, backend_end = find_backend_block(lines)
+    volumes = find_yaml_key(lines, "volumes", 4, backend + 1, backend_end)
+    assert volumes is not None
+    volumes_end = block_end(lines, volumes, 4)
+    config_mount = compose_volume_block(lines, volumes, volumes_end, "/config/application.yml")
+    if config_mount is None:
+        lines[volumes_end:volumes_end] = [
+            "      - type: bind\n",
+            "        source: ./application.yml\n",
+            "        target: /config/application.yml\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+        ]
+        changed = True
+    else:
+        start, end = config_mount
+        block = [line.strip() for line in lines[start:end]]
+        if "read_only: true" not in block:
+            fail("Compose application.yml mount exists but is not explicitly read_only: true")
+
+    return "".join(lines), changed
+
+
+def create_compose() -> str:
+    return (
+        "services:\n"
+        "  backend:\n"
+        "    environment:\n"
+        "      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml\n"
+        "    volumes:\n"
+        "      - type: bind\n"
+        "        source: ./application.yml\n"
+        "        target: /config/application.yml\n"
+        "        read_only: true\n"
+        "        bind:\n"
+        "          create_host_path: false\n"
+    )
+
+
+def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if mode is None and path.exists():
+            mode = path.stat().st_mode & 0o777
+        if mode is not None:
+   

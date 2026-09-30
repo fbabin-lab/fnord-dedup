@@ -72,14 +72,15 @@ class HashPipeline {
         byte[] digest
         long bytesRead = 0L
         long nextControlCheck = System.nanoTime() + CONTROL_CHECK_NANOS
+        SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
+        boolean unsafeFast = source.unsafeFast
         try {
-            SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
             FileMetadata expected = metadata(entry)
             try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {
-                store.acceptRoot(c,root.identity())
+                if (!unsafeFast) store.acceptRoot(c,root.identity())
                 try (ReadOnlyFileAccess.RegularFile file = root.openRegular(c.path,expected)) {
                     pre = file.metadata()
-                    if (!expected.sameFingerprint(pre)) throw new SourceAccessException('CHANGED','The opened file differs from its inventory observation.')
+                    if (!unsafeFast && !expected.sameFingerprint(pre)) throw new SourceAccessException('CHANGED','The opened file differs from its inventory observation.')
                     MessageDigest sha = MessageDigest.getInstance('SHA-256')
                     byte[] buffer = new byte[1024*1024]
                     while (true) {
@@ -96,12 +97,14 @@ class HashPipeline {
                         bytesRead = Math.addExact(bytesRead,(long)count)
                     }
                     post = file.metadata()
-                    if (!expected.sameFingerprint(post) || !file.validateComplete() || bytesRead != expected.size)
+                    if (!unsafeFast && (!expected.sameFingerprint(post) || !file.validateComplete() || bytesRead != expected.size))
                         throw new SourceAccessException('CHANGED','Size, metadata, EOF, or pathname validation failed.')
                     if (stopping.asBoolean || store.shouldStop(c)) throw new InventoryStop()
-                    try (ReadOnlyFileAccess.Root current = sources.openValidated(source)) {
-                        if (!root.identity().sameObject(current.identity())) throw new JobProblem(409,'SOURCE_CONFIGURATION_CHANGED','The source root binding changed.')
-                        store.acceptRoot(c,current.identity())
+                    if (!unsafeFast) {
+                        try (ReadOnlyFileAccess.Root current = sources.openValidated(source)) {
+                            if (!root.identity().sameObject(current.identity())) throw new JobProblem(409,'SOURCE_CONFIGURATION_CHANGED','The source root binding changed.')
+                            store.acceptRoot(c,current.identity())
+                        }
                     }
                     digest = sha.digest()
                 }
@@ -128,7 +131,7 @@ class HashPipeline {
 
         UUID attempt = UUID.randomUUID()
         store.tx.executeWithoutResult { status ->
-            String outcome = finishAttempt(c,attempt,'ACCEPTED',digest,null,null,pre,post,bytesRead,startedAt)
+            String outcome = finishAttempt(c,attempt,'ACCEPTED',digest,null,null,pre,post,bytesRead,startedAt,unsafeFast)
             store.complete(c,outcome == 'ACCEPTED' ? null : 'HASH_CONFLICT',
                 outcome == 'ACCEPTED' ? null : 'The observation has conflicting evidence. Start a new scan to establish fresh observations.',outcome)
         }
@@ -151,7 +154,7 @@ class HashPipeline {
      * no READ/PROGRESS row: unfinished reads leave no hash_attempt behind.
      */
     String finishAttempt(WorkClaim c, UUID attempt, String requested, byte[] digest, String code, String detail,
-                         FileMetadata pre, FileMetadata post, long bytesRead, Instant startedAt) {
+                         FileMetadata pre, FileMetadata post, long bytesRead, Instant startedAt, boolean unsafeFast = false) {
         store.tx.execute { status ->
             store.fence(c)
             store.one('SELECT id FROM scan WHERE id=? FOR UPDATE',c.scanId)
@@ -161,8 +164,8 @@ class HashPipeline {
             String errorCode = code, errorDetail = detail
             if (outcome == 'ACCEPTED') {
                 Map observation = store.one('SELECT e.* FROM scan_entry e WHERE e.id=? AND '+ELIGIBLE,c.entryId)
-                if (observation == null || pre == null || post == null || !metadata(observation).sameFingerprint(pre) || !metadata(observation).sameFingerprint(post) ||
-                    new BigDecimal(bytesRead) != new BigDecimal(observation.size_bytes.toString()) ||
+                if (observation == null || (!unsafeFast && (pre == null || post == null || !metadata(observation).sameFingerprint(pre) || !metadata(observation).sameFingerprint(post) ||
+                    new BigDecimal(bytesRead) != new BigDecimal(observation.size_bytes.toString()))) ||
                     (old != null && (!((Boolean)old.active) || !MessageDigest.isEqual((byte[])old.digest,digest)))) {
                     outcome='CONFLICT'; errorCode='HASH_CONFLICT'; errorDetail='Fresh evidence contradicts or cannot validate the original observation.'
                 }

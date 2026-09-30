@@ -7,7 +7,7 @@ import { Api, SourceList, errorMessage } from './api';
   template: `
     <p class="eyebrow">SERVER CONFIGURATION</p><h1>Sources</h1>
     <p class="lede">Registered directories and their last startup validation.</p>
-    <p class="notice">Source status reflects startup checks. Future scan and resume operations will revalidate the mount and source identity.</p>
+    <p class="notice">Source status reflects startup checks. Safe sources are revalidated during scan/resume; a source configured with unsafe-fast explicitly bypasses those guarantees.</p>
     @if (error()) { <p class="error" role="alert">{{ error() }}</p><button mat-button (click)="load()">Try again</button> }
     @if (data(); as listing) {
       @for (source of listing.sources; track source.id) {

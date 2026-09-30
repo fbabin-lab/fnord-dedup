@@ -24,6 +24,29 @@ Only the frontend is published, normally on `127.0.0.1:8088`. PostgreSQL and the
 
 ## Add sources
 
+The preferred operator workflow is the dependency-free helper script. It validates that the host path is an existing absolute readable directory, creates the private source YAML files when needed, generates stable source UUIDs for a new entry, and updates all three required locations together without writing anything inside the source directory:
+
+```bash
+./scripts/add-source /z20tb/files archive "Archive"
+```
+
+The source key and label are optional. With only a path, the key is derived from the directory basename and the label from the key:
+
+```bash
+./scripts/add-source /mnt/media/photos
+```
+
+Use `--dry-run` to validate and preview which private configuration files would change. Re-running the same command is idempotent. The helper refuses conflicting source keys, environment-variable aliases, reused host roots, or an existing source mount that is not explicitly read-only. It updates `deploy/.env`, `deploy/compose.sources.yaml`, and `deploy/application.yml`; it does not restart the backend.
+
+After adding a source, validate and recreate the backend:
+
+```bash
+./scripts/preflight
+./scripts/fnord up -d --force-recreate backend
+```
+
+Manual configuration remains supported:
+
 ```bash
 cp deploy/compose.sources.example.yaml deploy/compose.sources.yaml
 cp deploy/application.example.yml deploy/application.yml
@@ -31,7 +54,7 @@ cp deploy/application.example.yml deploy/application.yml
 
 Edit `deploy/.env` to set `FNORD_SOURCE_ARCHIVE` to an existing absolute host directory. Keep the bind's `read_only: true`, `create_host_path: false`, and private propagation. In `application.yml`, give each source a stable UUID and a stable backing-dataset `source-instance-id`. Generate new UUIDs with `python3 -c 'import uuid; print(uuid.uuid4())'`. Preserve both across normal restarts; assign a new source instance when replacing the backing dataset. Do not reuse the example identities for unrelated datasets.
 
-Repeat **both** the bind declaration and registry entry for additional sources. The UI cannot create mounts. The optional host-export prefix is an operator-supplied mapping for later export milestones; M4 catalog exports contain fingerprints/metadata and do not use host path mappings. An invalid/missing path is not automatically created. Source configuration is snapshotted in PostgreSQL by SHA-256 configuration revision; this hash is application configuration metadata, not a source-file hash.
+When configuring manually, repeat **both** the bind declaration and registry entry for additional sources, and add the corresponding host-path variable to `deploy/.env`. The UI cannot create mounts. The optional host-export prefix is an operator-supplied mapping for later export milestones; M4 catalog exports contain fingerprints/metadata and do not use host path mappings. An invalid/missing path is not automatically created. Source configuration is snapshotted in PostgreSQL by SHA-256 configuration revision; this hash is application configuration metadata, not a source-file hash.
 
 ```bash
 ./scripts/preflight

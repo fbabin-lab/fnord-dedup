@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""Safely register one read-only scan source in the private Fnord Dedup config."""
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+import uuid
+
+KEY_RE = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}$")
+ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def fail(message: str) -> "NoReturn":
+    raise SystemExit(f"add-source: {message}")
+
+
+def default_key(path: Path) -> str:
+    value = re.sub(r"[^a-z0-9_-]+", "-", path.name.lower()).strip("-_")
+    if not value or not value[0].isalnum():
+        fail("could not derive a source key from the directory name; pass --key")
+    return value[:64]
+
+
+def default_label(key: str) -> str:
+    return " ".join(part.capitalize() for part in re.split(r"[-_]+", key) if part)
+
+
+def env_token(key: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "_", key).upper()
+
+
+def env_value(value: str) -> str:
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        fail("host directory contains a control character that cannot be stored safely in deploy/.env")
+    if re.fullmatch(r"[A-Za-z0-9_./:@%+,=-]+", value):
+        return value
+    # Compose supports double-quoted .env values. Prevent interpolation of literal '$'.
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "$$")
+    return f'"{escaped}"'
+
+
+def split_lines(text: str) -> list[str]:
+    return text.splitlines(keepends=True)
+
+
+def ensure_nl(line: str) -> str:
+    return line if line.endswith("\n") else line + "\n"
+
+
+def leading_spaces(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def find_line(lines: list[str], text: str, indent: int, start: int = 0, end: int | None = None) -> int | None:
+    if end is None:
+        end = len(lines)
+    expected = " " * indent + text
+    for i in range(start, end):
+        if lines[i].rstrip("\r\n") == expected:
+            return i
+    return None
+
+
+
+
+def find_yaml_key(lines: list[str], key: str, indent: int, start: int = 0, end: int | None = None) -> int | None:
+    if end is None:
+        end = len(lines)
+    prefix = " " * indent + key + ":"
+    for i in range(start, end):
+        raw = lines[i].rstrip("\r\n")
+        if raw.startswith(prefix):
+            if raw != prefix:
+                fail(f"YAML key {key!r} must use block style for add-source to manage it safely")
+            return i
+    return None
+
+def block_end(lines: list[str], start: int, indent: int) -> int:
+    """End of a YAML mapping/list value whose key is at *indent*."""
+    i = start + 1
+    while i < len(lines):
+        raw = lines[i].rstrip("\r\n")
+        stripped = raw.strip()
+        if stripped and not stripped.startswith("#") and leading_spaces(raw) <= indent:
+            break
+        i += 1
+    return i
+
+
+def parse_env(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or not ENV_RE.match(line):
+            continue
+        name, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+            if raw.strip().split("=", 1)[1].strip().startswith('"'):
+                value = value.replace("$$", "$").replace('\\"', '"').replace("\\\\", "\\")
+        result[name] = value
+    return result
+
+
+def update_env(text: str, variable: str, host_path: str) -> tuple[str, bool]:
+    current = parse_env(text)
+    if variable in current:
+        if current[variable] != host_path:
+            fail(f"{variable} already points to {current[variable]!r}, not {host_path!r}")
+        return text, False
+    suffix = "" if not text or text.endswith("\n") else "\n"
+    return text + suffix + f"{variable}={env_value(host_path)}\n", True
+
+
+def source_blocks(lines: list[str], sources_index: int, sources_end: int) -> list[tuple[int, int, dict[str, str]]]:
+    starts: list[int] = []
+    for i in range(sources_index + 1, sources_end):
+        raw = lines[i].rstrip("\r\n")
+        if raw.startswith("    - "):
+            starts.append(i)
+    blocks: list[tuple[int, int, dict[str, str]]] = []
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else sources_end
+        fields: dict[str, str] = {}
+        first = lines[start].strip()[2:]
+        candidates = [first] + [lines[j].strip() for j in range(start + 1, end)]
+        for item in candidates:
+            if ":" not in item or item.startswith("#"):
+                continue
+            name, value = item.split(":", 1)
+            value = value.strip().strip('"').strip("'")
+            if name in {"id", "source-instance-id", "key", "label", "container-path", "host-export-prefix"}:
+                fields[name] = value
+        blocks.append((start, end, fields))
+    return blocks
+
+
+def update_application(text: str, key: str, label: str, container_path: str, export_var: str) -> tuple[str, bool, bool]:
+    lines = split_lines(text)
+    fnord = find_yaml_key(lines, "fnord", 0)
+    created_structure = False
+    if fnord is None:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        if lines and lines[-1].strip():
+            lines.append("\n")
+        fnord = len(lines)
+        lines.extend(["fnord:\n", "  sources:\n"])
+        sources = fnord + 1
+        created_structure = True
+    else:
+        fnord_end = block_end(lines, fnord, 0)
+        sources = find_yaml_key(lines, "sources", 2, fnord + 1, fnord_end)
+        if sources is None:
+            sources = fnord + 1
+            lines.insert(sources, "  sources:\n")
+            created_structure = True
+
+    sources_end = block_end(lines, sources, 2)
+    blocks = source_blocks(lines, sources, sources_end)
+    for _, _, fields in blocks:
+        existing_key = fields.get("key")
+        existing_path = fields.get("container-path")
+        if existing_key == key:
+            if existing_path and existing_path != container_path:
+                fail(f"source key {key!r} already uses container path {existing_path!r}")
+            return "".join(lines), created_structure, True
+        if existing_key and env_token(existing_key) == env_token(key):
+            fail(f"source key {key!r} collides with existing key {existing_key!r} in environment-variable naming")
+        if existing_path == container_path:
+            fail(f"container path {container_path!r} is already used by source {existing_key!r}")
+
+    source_id = uuid.uuid4()
+    instance_id = uuid.uuid4()
+    label_yaml = label.replace("\\", "\\\\").replace('"', '\\"')
+    item = [
+        f"    - id: {source_id}\n",
+        f"      source-instance-id: {instance_id}\n",
+        f"      key: {key}\n",
+        f'      label: "{label_yaml}"\n',
+        f"      container-path: {container_path}\n",
+        f"      host-export-prefix: ${{{export_var}}}\n",
+        "      enabled: true\n",
+        "      cross-mounts: false\n",
+    ]
+    lines[sources_end:sources_end] = item
+    return "".join(lines), True, False
+
+
+def find_backend_block(lines: list[str]) -> tuple[int, int]:
+    services = find_yaml_key(lines, "services", 0)
+    if services is None:
+        fail("deploy/compose.sources.yaml has no top-level services mapping")
+    services_end = block_end(lines, services, 0)
+    backend = find_yaml_key(lines, "backend", 2, services + 1, services_end)
+    if backend is None:
+        fail("deploy/compose.sources.yaml has no services.backend mapping")
+    return backend, block_end(lines, backend, 2)
+
+
+def compose_volume_block(lines: list[str], volumes: int, volumes_end: int, target: str) -> tuple[int, int] | None:
+    starts = [i for i in range(volumes + 1, volumes_end) if lines[i].rstrip("\r\n").startswith("      - ")]
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else volumes_end
+        if any(line.strip() == f"target: {target}" for line in lines[start:end]):
+            return start, end
+    return None
+
+
+def update_compose(text: str, key: str, source_var: str, export_var: str, host_path: str) -> tuple[str, bool]:
+    if not text.strip():
+        text = "services:\n  backend:\n"
+    lines = split_lines(text)
+    backend, backend_end = find_backend_block(lines)
+    changed = False
+
+    environment = find_yaml_key(lines, "environment", 4, backend + 1, backend_end)
+    env_line = f"      {export_var}: ${{{source_var}:?Set the existing absolute host directory}}\n"
+    config_line = "      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml\n"
+    if environment is None:
+        environment = backend + 1
+        lines[environment:environment] = ["    environment:\n", config_line, env_line]
+        changed = True
+    else:
+        environment_end = block_end(lines, environment, 4)
+        existing_names = [lines[i].strip().split(":", 1)[0] for i in range(environment + 1, environment_end) if ":" in lines[i]]
+        if "SPRING_CONFIG_ADDITIONAL_LOCATION" not in existing_names:
+            lines.insert(environment_end, config_line)
+            environment_end += 1
+            changed = True
+        if export_var not in existing_names:
+            lines.insert(environment_end, env_line)
+            changed = True
+
+    # Recalculate after possible insertion.
+    backend, backend_end = find_backend_block(lines)
+    volumes = find_yaml_key(lines, "volumes", 4, backend + 1, backend_end)
+    if volumes is None:
+        insert_at = backend_end
+        lines[insert_at:insert_at] = [
+            "    volumes:\n",
+            "      - type: bind\n",
+            f"        source: ${{{source_var}:?Set the existing absolute host directory}}\n",
+            f"        target: /sources/{key}\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+            "          propagation: rprivate\n",
+            "      - type: bind\n",
+            "        source: ./application.yml\n",
+            "        target: /config/application.yml\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+        ]
+        changed = True
+        return "".join(lines), changed
+
+    volumes_end = block_end(lines, volumes, 4)
+    target = f"/sources/{key}"
+    existing = compose_volume_block(lines, volumes, volumes_end, target)
+    if existing is not None:
+        start, end = existing
+        block = [line.strip() for line in lines[start:end]]
+        source_values = [line.split(":", 1)[1].strip() for line in block if line.startswith("source:")]
+        if source_values:
+            expected_ref = f"${{{source_var}"
+            if not (source_values[0] == host_path or source_values[0].startswith(expected_ref)):
+                fail(f"Compose target {target!r} already uses source {source_values[0]!r}")
+        if "read_only: true" not in block:
+            fail(f"Compose target {target!r} exists but is not explicitly read_only: true")
+    else:
+        mount = [
+            "      - type: bind\n",
+            f"        source: ${{{source_var}:?Set the existing absolute host directory}}\n",
+            f"        target: {target}\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+            "          propagation: rprivate\n",
+        ]
+        lines[volumes + 1:volumes + 1] = mount
+        changed = True
+
+    # The backend must also receive the private application registry.
+    backend, backend_end = find_backend_block(lines)
+    volumes = find_yaml_key(lines, "volumes", 4, backend + 1, backend_end)
+    assert volumes is not None
+    volumes_end = block_end(lines, volumes, 4)
+    config_mount = compose_volume_block(lines, volumes, volumes_end, "/config/application.yml")
+    if config_mount is None:
+        lines[volumes_end:volumes_end] = [
+            "      - type: bind\n",
+            "        source: ./application.yml\n",
+            "        target: /config/application.yml\n",
+            "        read_only: true\n",
+            "        bind:\n",
+            "          create_host_path: false\n",
+        ]
+        changed = True
+    else:
+        start, end = config_mount
+        block = [line.strip() for line in lines[start:end]]
+        if "read_only: true" not in block:
+            fail("Compose application.yml mount exists but is not explicitly read_only: true")
+
+    return "".join(lines), changed
+
+
+def create_compose() -> str:
+    return (
+        "services:\n"
+        "  backend:\n"
+        "    environment:\n"
+        "      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml\n"
+        "    volumes:\n"
+        "      - type: bind\n"
+        "        source: ./application.yml\n"
+        "        target: /config/application.yml\n"
+        "        read_only: true\n"
+        "        bind:\n"
+        "          create_host_path: false\n"
+    )
+
+
+def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if mode is None and path.exists():
+            mode = path.stat().st_mode & 0o777
+        if mode is not None:
+            os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Register a host directory as a read-only Fnord Dedup scan source."
+    )
+    parser.add_argument("host_directory", help="existing absolute host directory to mount read-only")
+    parser.add_argument("key", nargs="?", help="source key (default: derived from directory basename)")
+    parser.add_argument("label", nargs="?", help="display label (default: derived from key)")
+    parser.add_argument("--dry-run", action="store_true", help="validate and show planned changes without writing files")
+    parser.add_argument("--repo", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    script_repo = Path(__file__).resolve().parent.parent
+    repo = (args.repo or script_repo).resolve()
+    deploy = repo / "deploy"
+    if not (repo / "scripts" / "fnord").exists():
+        fail(f"{repo} does not look like a fnord-dedup checkout")
+
+    host = Path(args.host_directory)
+    if not host.is_absolute():
+        fail("host directory must be an absolute path")
+    host = Path(os.path.abspath(os.fspath(host)))
+    if not host.is_dir():
+        fail(f"host directory does not exist or is not a directory: {host}")
+    if not os.access(host, os.R_OK | os.X_OK):
+        fail(f"current host user cannot inspect directory: {host}")
+
+    key = args.key or default_key(host)
+    if not KEY_RE.fullmatch(key):
+        fail("key must match [a-z0-9][a-z0-9_-]{0,63}")
+    label = args.label or default_label(key)
+    if not (1 <= len(label) <= 200):
+        fail("label must contain 1 to 200 characters")
+
+    token = env_token(key)
+    source_var = f"FNORD_SOURCE_{token}"
+    export_var = f"FNORD_HOST_EXPORT_{token}"
+    container_path = f"/sources/{key}"
+
+    env_path = deploy / ".env"
+    compose_path = deploy / "compose.sources.yaml"
+    app_path = deploy / "application.yml"
+    if not env_path.exists():
+        fail("deploy/.env is missing; copy deploy/.env.example to deploy/.env or run the normal setup first")
+
+    env_text = env_path.read_text(encoding="utf-8")
+    existing_env = parse_env(env_text)
+    for name, value in existing_env.items():
+        if name.startswith("FNORD_SOURCE_") and name != source_var and value == str(host):
+            fail(f"host directory is already assigned through {name}")
+    compose_text = compose_path.read_text(encoding="utf-8") if compose_path.exists() else create_compose()
+    app_text = app_path.read_text(encoding="utf-8") if app_path.exists() else ""
+
+    new_env, env_changed = update_env(env_text, source_var, str(host))
+    new_compose, compose_changed = update_compose(compose_text, key, source_var, export_var, str(host))
+    new_app, app_changed, app_existing = update_application(app_text, key, label, container_path, export_var)
+
+    changed = env_changed or compose_changed or app_changed
+    if args.dry_run:
+        print(f"Source key:       {key}")
+        print(f"Host directory:   {host}")
+        print(f"Container path:   {container_path}")
+        print(f"Environment var:  {source_var}")
+        print("Would update:" if changed else "No changes required:")
+        for path, flag in [(env_path, env_changed), (compose_path, compose_changed), (app_path, app_changed)]:
+            print(f"  {'UPDATE' if flag else 'unchanged':9} {path.relative_to(repo)}")
+        return 0
+
+    if not changed:
+        print(f"Source {key!r} is already configured for {host}.")
+        return 0
+
+    # Compute every candidate before replacing any file. Each individual replacement is atomic.
+    atomic_write(env_path, new_env)
+    atomic_write(compose_path, new_compose)
+    atomic_write(app_path, new_app)
+
+    verb = "Updated" if app_existing else "Added"
+    print(f"{verb} source {key!r}: {host} -> {container_path} (read-only)")
+    print("Configuration files updated:")
+    print("  deploy/.env")
+    print("  deploy/compose.sources.yaml")
+    print("  deploy/application.yml")
+    print("Next run:")
+    print("  ./scripts/preflight")
+    print("  ./scripts/fnord up -d --force-recreate backend")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

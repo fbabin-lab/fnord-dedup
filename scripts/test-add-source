@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""Dependency-free regression checks for scripts/add-source."""
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+import tempfile
+
+REPO = Path(__file__).resolve().parent.parent
+SCRIPT = REPO / "scripts" / "add-source"
+
+
+def run(checkout: Path, *args: str, ok: bool = True) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        [str(SCRIPT), "--repo", str(checkout), *args],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    if ok and result.returncode != 0:
+        raise AssertionError(f"command failed ({result.returncode}):\n{result.stdout}")
+    if not ok and result.returncode == 0:
+        raise AssertionError(f"command unexpectedly succeeded:\n{result.stdout}")
+    return result
+
+
+def make_checkout(root: Path, env: str) -> Path:
+    checkout = root / "checkout"
+    (checkout / "scripts").mkdir(parents=True)
+    (checkout / "deploy").mkdir()
+    (checkout / "scripts" / "fnord").write_text("#!/bin/sh\n", encoding="utf-8")
+    (checkout / "deploy" / ".env").write_text(env, encoding="utf-8")
+    return checkout
+
+
+def test_add_and_idempotence(root: Path) -> None:
+    source_a = root / "archive"
+    source_b = root / "backup"
+    source_a.mkdir(parents=True)
+    source_b.mkdir()
+    checkout = make_checkout(root, f"FNORD_SOURCE_ARCHIVE={source_a}\n")
+    (checkout / "deploy" / "compose.sources.yaml").write_text(
+        f"""services:\n  backend:\n    environment:\n      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml\n      FNORD_HOST_EXPORT_ARCHIVE: ${{FNORD_SOURCE_ARCHIVE:?Set the existing absolute host directory}}\n    volumes:\n      - type: bind\n        source: {source_a}\n        target: /sources/archive\n        read_only: true\n        bind:\n          create_host_path: false\n          propagation: rprivate\n      - type: bind\n        source: ./application.yml\n        target: /config/application.yml\n        read_only: true\n        bind:\n          create_host_path: false\n""",
+        encoding="utf-8",
+    )
+    (checkout / "deploy" / "application.yml").write_text(
+        """fnord:\n  sources:\n    - id: 71b53f30-f68f-45d5-a337-763c5a0e0552\n      source-instance-id: 6842060a-5ab7-4880-b19a-0589174fe877\n      key: archive\n      label: Archive\n      container-path: /sources/archive\n      host-export-prefix: /host/archive\n      enabled: true\n      cross-mounts: false\n""",
+        encoding="utf-8",
+    )
+
+    run(checkout, str(source_b), "backup", "Backup Files")
+    compose = (checkout / "deploy" / "compose.sources.yaml").read_text(encoding="utf-8")
+    app = (checkout / "deploy" / "application.yml").read_text(encoding="utf-8")
+    env = (checkout / "deploy" / ".env").read_text(encoding="utf-8")
+    assert "target: /sources/backup" in compose
+    assert "read_only: true" in compose
+    assert "key: backup" in app
+    assert "FNORD_SOURCE_BACKUP=" in env
+
+    before = (env, compose, app)
+    run(checkout, str(source_b), "backup", "Backup Files")
+    after = (
+        (checkout / "deploy" / ".env").read_text(encoding="utf-8"),
+        (checkout / "deploy" / "compose.sources.yaml").read_text(encoding="utf-8"),
+        (checkout / "deploy" / "application.yml").read_text(encoding="utf-8"),
+    )
+    assert before == after
+
+
+def test_bootstrap_and_spaces(root: Path) -> None:
+    source = root / "My Files"
+    source.mkdir(parents=True)
+    checkout = make_checkout(root, "COMPOSE_PROJECT_NAME=fnord-dedup\n")
+    run(checkout, str(source))
+    env = (checkout / "deploy" / ".env").read_text(encoding="utf-8")
+    compose = (checkout / "deploy" / "compose.sources.yaml").read_text(encoding="utf-8")
+    app = (checkout / "deploy" / "application.yml").read_text(encoding="utf-8")
+    assert 'FNORD_SOURCE_MY_FILES="' in env
+    assert "target: /sources/my-files" in compose
+    assert "target: /config/application.yml" in compose
+    assert 'label: "My Files"' in app
+
+
+def test_reject_alias_and_writable_existing_mount(root: Path) -> None:
+    source = root / "same"
+    source.mkdir(parents=True)
+    checkout = make_checkout(root, f"FNORD_SOURCE_FIRST={source}\n")
+    result = run(checkout, str(source), "second", ok=False)
+    assert "already assigned" in result.stdout
+
+    checkout2 = root / "writable-checkout"
+    (checkout2 / "scripts").mkdir(parents=True)
+    (checkout2 / "deploy").mkdir()
+    (checkout2 / "scripts" / "fnord").write_text("#!/bin/sh\n", encoding="utf-8")
+    (checkout2 / "deploy" / ".env").write_text(f"FNORD_SOURCE_DATA={source}\n", encoding="utf-8")
+    (checkout2 / "deploy" / "compose.sources.yaml").write_text(
+        f"""services:\n  backend:\n    environment:\n      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml\n    volumes:\n      - type: bind\n        source: {source}\n        target: /sources/data\n        read_only: false\n""",
+        encoding="utf-8",
+    )
+    result = run(checkout2, str(source), "data", ok=False)
+    assert "not explicitly read_only" in result.stdout
+
+
+def main() -> int:
+    with tempfile.TemporaryDirectory(prefix="fnord-add-source-test-") as temp:
+        base = Path(temp)
+        test_add_and_idempotence(base / "case1")
+        test_bootstrap_and_spaces(base / "case2")
+        test_reject_alias_and_writable_existing_mount(base / "case3")
+    print("add-source regression checks passed")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -28,7 +28,7 @@ After lease takeover or orderly worker release, active jobs become INTERRUPTED a
 
 Whole-root scans select at most 100 configured sources. Admission serializes only short DB creation transactions, permits at most ten unfinished jobs and five creations per actor per minute, and serves idempotent replay before checking capacity. Keys currently have no automatic purge, preserving more than the minimum 24 hours.
 
-Pages are bounded and use monotonic sequence cutoffs/keyset cursors, never OFFSET. GET handlers read PostgreSQL and cached source status only. The browser polls active progress every two seconds and stops polling on destruction; this has no effect on the worker. Counters and byte values use decimal strings, with NUMERIC(38,0) aggregate bytes and unsigned inode values stored as NUMERIC(20,0).
+Pages are bounded and use monotonic sequence cutoffs/keyset cursors, never OFFSET. GET handlers read PostgreSQL and cached source status only. The browser polls progress every ten seconds and stops polling on destruction; this has no effect on the worker. Counters and byte values use decimal strings, with NUMERIC(38,0) aggregate bytes and unsigned inode values stored as NUMERIC(20,0).
 
 No additional runtime dependency or source capability was introduced. Test-only fixture servers and writable-fixture mount overrides live in the test source set and are absent from the production JAR.
 

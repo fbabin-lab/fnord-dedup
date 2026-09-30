@@ -54,6 +54,17 @@ class LinuxReadOnlyFileAccessTest {
         assertEquals('WRITABLE_SOURCE', error.code)
         assertEquals(before, Files.readAttributes(fixture.resolve('file'), 'unix:mode,ino,size,lastModifiedTime,ctime'))
     }
+    @Test void unsafeFastBypassesWritableMountValidation() {
+        Files.writeString(fixture.resolve('file'),'hello')
+        def unsafe = new SourceDefinition(id:UUID.randomUUID(),sourceInstanceId:UUID.randomUUID(),
+            key:'unsafe',label:'Unsafe fixture',containerPath:fixture.toString(),unsafeFast:true)
+        try (def root = new LinuxReadOnlyFileAccess().openRoot(unsafe); def cursor = root.list(new byte[0])) {
+            byte[] name = cursor.next()
+            assertArrayEquals(bytes('file'),name)
+            assertTrue(root.metadata(name).regular)
+            assertNull(cursor.next())
+        }
+    }
     @Test void namesAreLosslessAndControlCharactersAreEscaped() {
         def names = ['space name', '"quote,comma"', 'line\nfeed', 'tab\tname', 'carriage\rreturn',
             '-leading', 'back\\slash', 'caf\u00e9', 'cafe\u0301', '.hidden', '<img src=x onerror=alert(1)>']

@@ -158,6 +158,6 @@ class SourceRegistry {
         }
     }
     private static SourceView view(SourceDefinition s, String status, String detail, int excluded) {
-        new SourceView(s.id,s.sourceInstanceId,s.key,s.label,s.containerPath,s.enabled,s.crossMounts,status,detail,excluded)
+        new SourceView(s.id,s.sourceInstanceId,s.key,s.label,s.containerPath,s.enabled,s.crossMounts,s.unsafeFast,status,detail,excluded)
     }
 }

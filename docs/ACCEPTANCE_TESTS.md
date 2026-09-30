@@ -57,7 +57,7 @@ Tests must examine database state and actual filesystem reads where relevant, no
 
 **AT-23 — Manual unique-size hashing.** Explicitly request a checksum for a unique-size file. It is calculated through a durable job with MANUAL provenance. Repeating the request without force reuses the same accepted attempt/time when valid.
 
-**AT-24 — Pause/cancel a large hash.** Interrupt at multiple chunk boundaries. No partial digest is persisted as accepted. Resume starts the unfinished file at byte zero, preserves completed files, and distinguishes physical reread bytes from useful completed bytes.
+**AT-24 — Pause/cancel a large hash.** Interrupt a hash before publication. No partial digest, in-progress attempt, or partial byte counter is persisted. Resume starts the unfinished file at byte zero and preserves already completed file-level hashes.
 
 **AT-25 — Source changes.** Modify, truncate, enlarge, replace, or remove a file before/during hashing. Pre/post/identity validation rejects mismatching evidence. Original inventory metadata remains historical; current results become stale or incomplete.
 

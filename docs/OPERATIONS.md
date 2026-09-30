@@ -75,7 +75,7 @@ services:
     group_add: ['1234']
 ```
 
-Preflight can inspect access only as the current host user; the backend's startup validation is authoritative for its runtime credentials. Do not use privileged mode or mount the Docker socket. Source symlinks, including root path components, are never followed. JNA extracts its pinned bundled native library into the application-owned `/tmp` tmpfs; this location must support library mappings. No native library is loaded from source directories.
+Preflight can inspect access only as the current host user; the backend's startup validation is authoritative for its runtime credentials. Do not use privileged mode or mount the Docker socket. Source symlinks, including root path components, are never followed. JNA extracts its pinned bundled native library into the dedicated application-owned `/run/jna` tmpfs, which is executable only so the JVM can map that native library; it remains `nosuid,nodev` and writable only by the backend UID. General `/tmp` remains separate. No native library is loaded from source directories.
 
 Read-only mounts prevent this application from writing through those mounts, but host processes may still change the files. The adapter compares exact metadata and the directory entry around reads; this is not a point-in-time snapshot or protection against an adversary who restores bytes/metadata between checks.
 

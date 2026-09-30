@@ -49,12 +49,18 @@ class SourceRegistry {
             int excluded = 0
             if (source.enabled) {
                 try (ReadOnlyFileAccess.Root root = access.openRoot(source)) {
-                    MountTable table = MountTable.current()
-                    rejectApplicationAliases(source, root.identity(), table)
-                    backingPaths.put(source.id, table.backingPath(root.identity().mountId, source.containerPath))
-                    status = 'AVAILABLE'; detail = 'Read-only source verified at startup.'
-                    if (!source.crossMounts) excluded = table.beneath(source.containerPath).size()
-                    identities.put(source.id, root.identity())
+                    if (source.unsafeFast) {
+                        status = 'AVAILABLE'
+                        detail = 'UNSAFE FAST MODE: runtime read-only, mount, overlap and identity consistency checks are bypassed.'
+                        identities.put(source.id, root.identity())
+                    } else {
+                        MountTable table = MountTable.current()
+                        rejectApplicationAliases(source, root.identity(), table)
+                        backingPaths.put(source.id, table.backingPath(root.identity().mountId, source.containerPath))
+                        status = 'AVAILABLE'; detail = 'Read-only source verified at startup.'
+                        if (!source.crossMounts) excluded = table.beneath(source.containerPath).size()
+                        identities.put(source.id, root.identity())
+                    }
                 } catch (SourceAccessException e) { status = e.code; detail = e.message }
                 catch (IOException | SecurityException e) { status = 'UNAVAILABLE'; detail = 'The configured source is unavailable to this process.' }
                 catch (LinkageError e) {
@@ -69,10 +75,10 @@ class SourceRegistry {
         }
         for (int i = 0; i < properties.sources.size(); i++) {
             SourceDefinition a = properties.sources.get(i)
-            if (!a.enabled) continue
+            if (!a.enabled || a.unsafeFast) continue
             for (int j = i + 1; j < properties.sources.size(); j++) {
                 SourceDefinition b = properties.sources.get(j)
-                if (!b.enabled) continue
+                if (!b.enabled || b.unsafeFast) continue
                 FileMetadata x = identities.get(a.id), y = identities.get(b.id)
                 boolean alias = x != null && y != null && x.inode == y.inode && x.deviceMajor == y.deviceMajor && x.deviceMinor == y.deviceMinor
                 if (x != null && y != null && x.deviceMajor == y.deviceMajor && x.deviceMinor == y.deviceMinor) {
@@ -97,11 +103,13 @@ class SourceRegistry {
         SourceDefinition s = properties.sources.find { SourceDefinition candidate -> candidate.id == id }
         if (s == null) return null
         new SourceDefinition(id:s.id, sourceInstanceId:s.sourceInstanceId, key:s.key, label:s.label,
-            containerPath:s.containerPath, hostExportPrefix:s.hostExportPrefix, enabled:s.enabled, crossMounts:s.crossMounts)
+            containerPath:s.containerPath, hostExportPrefix:s.hostExportPrefix, enabled:s.enabled, crossMounts:s.crossMounts,
+            unsafeFast:s.unsafeFast)
     }
 
     ReadOnlyFileAccess.Root openValidated(SourceDefinition source) {
         ReadOnlyFileAccess.Root root = access.openRoot(source)
+        if (source.unsafeFast) return root
         try { rejectApplicationAliases(source, root.identity(), MountTable.current()); return root }
         catch (Throwable t) { root.close(); throw t }
     }
@@ -143,7 +151,7 @@ class SourceRegistry {
             if (source.containerPath == null || !source.containerPath.startsWith('/') ||
                 Path.of(source.containerPath).normalize().toString() != source.containerPath)
                 throw new IllegalArgumentException('Source container paths must be normalized absolute paths.')
-            for (String app : applicationPaths) {
+            if (!source.unsafeFast) for (String app : applicationPaths) {
                 if (MountTable.isWithin(app, source.containerPath) || MountTable.isWithin(source.containerPath, app))
                     throw new IllegalArgumentException('Source roots must not overlap application-owned storage.')
             }

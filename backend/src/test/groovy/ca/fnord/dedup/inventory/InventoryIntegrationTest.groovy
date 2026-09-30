@@ -171,7 +171,12 @@ class InventoryIntegrationTest {
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM work_item',Integer))
     }
 
-    @Test void pausedScanCanBePromotedToUnsafeFastOnResume() {
+    @Test void unsafeFastCanBeSelectedAtCreationAndPromotedOneWayOnResume() {
+        Map createdUnsafe = service.create([name:'Unsafe from start',sourceIds:[sourceId.toString()],unsafeFast:true],UUID.randomUUID().toString(),'operator',correlation)
+        assertTrue(service.scan(UUID.fromString(createdUnsafe.scanId)).unsafeFast as boolean)
+        assertEquals(Boolean.TRUE,store.parse(jdbc.queryForObject('SELECT snapshot::text FROM scan_source WHERE scan_id=?',String,UUID.fromString(createdUnsafe.scanId))).unsafeFast)
+        service.control(UUID.fromString(createdUnsafe.jobId),'cancel','operator',correlation)
+
         def created = create()
         UUID jobId = UUID.fromString(created.jobId)
         assertEquals('PAUSED',service.control(jobId,'pause','operator',correlation).state)
@@ -180,6 +185,10 @@ class InventoryIntegrationTest {
         assertTrue(scan.unsafeFast as boolean)
         Map snapshot = store.parse(jdbc.queryForObject('SELECT snapshot::text FROM scan_source WHERE scan_id=?',String,UUID.fromString(created.scanId)))
         assertEquals(Boolean.TRUE,snapshot.unsafeFast)
+
+        assertEquals('PAUSED',service.control(jobId,'pause','operator',correlation).state)
+        assertEquals('QUEUED',service.control(jobId,'resume','operator',correlation).state)
+        assertTrue(service.scan(UUID.fromString(created.scanId)).unsafeFast as boolean)
     }
 
     @Test void recoveryFencesOldWorkersAndRetainsFirstObservationOnConflict() {

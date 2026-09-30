@@ -295,7 +295,7 @@ Progress is a durable snapshot with job ID, scan ID, state, phase, start/update 
 
 Discovery has an unknown total: show counts and rate, not a fabricated percentage. After candidate selection, hashing can show completed candidate count and bytes against known totals. Failed/skipped files count as resolved work, not successful hashes. Rates/ETA are estimates; omit ETA without enough data. Pausing preserves counters.
 
-Use authenticated REST polling every two seconds while active and a slower interval while idle. Polling stops when the browser view is closed; server work does not. Browser reconnect reloads durable state. SSE is optional future enhancement, not a v1 requirement.
+Use authenticated REST polling no more often than every ten seconds. Polling stops when the browser view is closed; server work does not. Browser reconnect reloads durable state. SSE is optional future enhancement, not a v1 requirement.
 
 ## 7. Three-step scan pipeline
 

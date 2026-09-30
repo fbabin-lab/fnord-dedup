@@ -31,4 +31,28 @@ class SourceRegistryTest {
         assertEquals('MOUNT_STATUS_UNAVAILABLE',registry.list().find { it.id == bad.id }.status)
         assertEquals(64,registry.revision.length())
     }
+
+    @Test void unsafeFastSourceBypassesMountTableValidation() {
+        def nativeLinux = new NativeLinux()
+        int fd = nativeLinux.open(-100, '/'.bytes, NativeLinux.DIRECTORY, 0L)
+        FileMetadata known
+        try { known = nativeLinux.metadata(fd) } finally { nativeLinux.close(fd) }
+        def impossibleMount = new FileMetadata(known.mask,known.mode,known.inode,known.size,Long.MAX_VALUE,
+            known.deviceMajor,known.deviceMinor,known.mtimeSeconds,known.mtimeNanos,known.ctimeSeconds,
+            known.ctimeNanos,known.birthSeconds,known.birthNanos,known.linkCount,known.blocks,known.uid,known.gid)
+        def unsafe = new SourceDefinition(id:UUID.randomUUID(), sourceInstanceId:UUID.randomUUID(),key:'unsafe',label:'Unsafe',
+            containerPath:'/sources/unsafe',unsafeFast:true)
+        ReadOnlyFileAccess access = [openRoot:{ SourceDefinition ignored ->
+            [identity:{ impossibleMount },close:{}] as ReadOnlyFileAccess.Root
+        }] as ReadOnlyFileAccess
+        JdbcTemplate jdbc = new JdbcTemplate() {
+            @Override int update(String sql, Object... arguments) { 1 }
+        }
+        def registry = new SourceRegistry(new SourceProperties(sources:[unsafe]),access,jdbc,JsonMapper.builder().build())
+        registry.initialize()
+        def view = registry.list().first()
+        assertEquals('AVAILABLE',view.status)
+        assertTrue(view.unsafeFast)
+        assertTrue(view.detail.contains('UNSAFE FAST MODE'))
+    }
 }

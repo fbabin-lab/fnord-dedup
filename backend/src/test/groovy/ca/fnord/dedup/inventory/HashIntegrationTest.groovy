@@ -116,13 +116,12 @@ class HashIntegrationTest {
         Map scan=create(); UUID jobId=UUID.fromString(scan.jobId); int reads=0
         sources.readHook={path,buffer,count -> if (count>0 && ++reads==chunk) { sources.readHook=null; inventory.control(jobId,'pause','operator',correlation) } }
         until { job(scan).state=='PAUSED' }
-        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM hash_attempt WHERE digest IS NOT NULL",Integer))
-        assertEquals('STOPPED',jdbc.queryForObject('SELECT outcome FROM hash_attempt',String))
-        assertEquals(Integer.toString(chunk*1024*1024),job(scan).physicalBytesRead)
+        assertEquals(0,jdbc.queryForObject('SELECT count(*) FROM hash_attempt',Integer))
+        assertEquals('0',job(scan).physicalBytesRead)
         inventory.control(jobId,'resume','operator',correlation); finish(scan)
         assertEquals('COMPLETED',job(scan).state)
         assertEquals(Long.toString(2L*content.length),job(scan).usefulBytesHashed)
-        assertEquals(Long.toString(2L*content.length+chunk*1024L*1024L),job(scan).physicalBytesRead)
+        assertEquals(Long.toString(2L*content.length),job(scan).physicalBytesRead)
         assertEquals(3,sources.bodyReads)
         assertEquals(HexFormat.of().formatHex(MessageDigest.getInstance('SHA-256').digest(content)),groups(scan).items[0].digest)
     }
@@ -132,6 +131,8 @@ class HashIntegrationTest {
         sources.readHook={path,buffer,count -> if (count>0) { sources.readHook=null; inventory.control(id,'cancel','operator',correlation) } }
         finish(scan); assertEquals('CANCELLED',job(scan).state)
         assertEquals(0,jdbc.queryForObject('SELECT count(*) FROM accepted_hash',Integer))
+        assertEquals(0,jdbc.queryForObject('SELECT count(*) FROM hash_attempt',Integer))
+        assertEquals('0',job(scan).physicalBytesRead)
         assertEquals('0',job(scan).usefulBytesHashed)
         assertEquals('INVALID_JOB_STATE',assertThrows(JobProblem) { inventory.control(id,'resume','operator',correlation) }.code)
     }
@@ -153,7 +154,8 @@ class HashIntegrationTest {
         finish(scan)
         assertEquals('COMPLETED_WITH_ERRORS',job(scan).state)
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM accepted_hash WHERE active',Integer))
-        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM hash_attempt WHERE outcome<>'ACCEPTED' AND digest IS NOT NULL",Integer))
+        assertEquals(1,jdbc.queryForObject("SELECT count(*) FROM hash_attempt WHERE outcome='ACCEPTED'",Integer))
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM hash_attempt WHERE outcome IN ('READING','FAILED','INTERRUPTED','STOPPED')",Integer))
         assertEquals(0,groups(scan).items.size())
         assertEquals(2,jdbc.queryForObject('SELECT count(*) FROM scan_entry WHERE size_bytes=2097152',Integer))
     }
@@ -248,18 +250,21 @@ class HashIntegrationTest {
         assertEquals(0,sources.bodyReads)
         assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM job WHERE type='HASH'",Integer))
     }
-    @Test void expiredHashClaimCannotPublishAndResumeRecordsAnInterruptedAttempt() {
+    @Test void expiredHashClaimCannotPublishAndLeavesNoPartialAttempt() {
         Files.writeString(fixture.resolve('a'),'hello'); Files.writeString(fixture.resolve('b'),'hello')
         Map scan=create()
         until { job(scan).phase=='HASHING' }
         // Claim with the current scheduler identity without running its filesystem operation.
         Map coordinator=store.one('SELECT * FROM scheduler_lock WHERE id=1')
         WorkClaim claim=store.claim((UUID)coordinator.owner,((Number)coordinator.token).longValue())
-        HashPipeline pipeline=new HashPipeline(store,sources); UUID attempt=pipeline.start(claim)
+        HashPipeline pipeline=new HashPipeline(store,sources); UUID attempt=UUID.randomUUID()
         jdbc.update("UPDATE work_item SET lease_expires_at='-infinity' WHERE id=?",claim.id)
-        assertThrows(LeaseLost) { pipeline.finishAttempt(claim,attempt,'ACCEPTED',new byte[32],null,null,null,null) }
+        assertThrows(LeaseLost) {
+            pipeline.finishAttempt(claim,attempt,'ACCEPTED',new byte[32],null,null,null,null,5L,java.time.Instant.now())
+        }
+        assertEquals(0,jdbc.queryForObject('SELECT count(*) FROM hash_attempt WHERE id=?',Integer,attempt))
         worker.runOnce(); assertEquals('INTERRUPTED',job(scan).state)
-        assertEquals('INTERRUPTED',jdbc.queryForObject('SELECT outcome FROM hash_attempt WHERE id=?',String,attempt))
+        assertEquals(0,jdbc.queryForObject("SELECT count(*) FROM hash_attempt WHERE outcome='INTERRUPTED'",Integer))
         inventory.control(UUID.fromString(scan.jobId),'resume','operator',correlation); finish(scan)
         assertEquals('COMPLETED',job(scan).state); assertEquals(2,jdbc.queryForObject('SELECT count(*) FROM accepted_hash WHERE active',Integer))
     }

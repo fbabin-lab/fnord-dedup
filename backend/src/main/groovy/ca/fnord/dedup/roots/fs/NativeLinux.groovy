@@ -16,7 +16,7 @@ final class NativeLinux {
     private final LibC libc
 
     interface LibC extends Library {
-        long syscall(long number, long dirfd, Pointer path, Pointer how, long size)
+        long syscall(long number, Object... args)
         int statx(int dirfd, Pointer path, int flags, int mask, Pointer buffer)
         int fstatvfs(int fd, Pointer buffer)
         long read(int fd, byte[] buffer, long count)

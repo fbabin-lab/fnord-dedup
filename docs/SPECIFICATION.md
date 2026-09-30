@@ -275,7 +275,7 @@ Terminal jobs do not resume. The UI offers a new scan or an explicit follow-up r
 
 **Inventory:** commit discovered entries and child-directory work in batches, normally 500 entries or one second. A directory becomes complete only after full enumeration and after all emitted entries/child work are committed. On interruption, re-enumerate that unfinished directory from its beginning; do not persist an array offset into a live directory listing. Uniqueness constraints prevent duplicate observations and child jobs. The first committed observation for a path in the scan is retained; conflicting metadata on replay marks the observation unstable rather than silently replacing it.
 
-**Hashing/indexing/verification:** check control requests at bounded chunk boundaries. On pause/cancel, close the stream and discard the unfinished digest/extraction/comparison. Resume that file from byte zero. Already committed complete results are retained. Do not serialize provider-specific SHA-256 internal state or treat a partial digest as valid. Physical bytes read may exceed useful completed bytes after retries; track them separately.
+**Hashing:** keep digest state and byte count in memory until the whole file reaches EOF and passes post-read metadata/path/root validation. Do not persist partial hash progress, intermediate digest state, or an in-progress hash-attempt row. On pause/cancel/process loss/read failure, close the stream and retry that file from byte zero later. Only a completed file-level result is inserted into hash evidence. Local shutdown may be checked per read; durable pause/cancel state is checked no more often than every ten seconds and once immediately before publication. **Indexing/verification:** retain their own bounded safe-point rules until separately optimized.
 
 **Database analysis:** work in bounded batches into an unpublished result revision. Pause between batches. Publish only a complete generation with an atomic revision switch.
 
@@ -291,7 +291,7 @@ Before resume, validate root identity, mount read-only status, config revision, 
 
 ### 6.5 Progress UI contract
 
-Progress is a durable snapshot with job ID, scan ID, state, phase, start/update times, current source, active file display path, discovered directories/files, completed/skipped/error entries, candidate count/bytes, completed hash count/useful bytes, total physical bytes read, indexed count, pending/running work, elapsed time, and last heartbeat.
+Progress is a durable snapshot with job ID, scan ID, state, phase, start/update times, current source, active file display path, discovered directories/files, completed/skipped/error entries, candidate count/bytes, completed hash count/completed hashed bytes, indexed count, pending/running work, elapsed time, and last heartbeat. Partial bytes from an unfinished hash are intentionally absent.
 
 Discovery has an unknown total: show counts and rate, not a fabricated percentage. After candidate selection, hashing can show completed candidate count and bytes against known totals. Failed/skipped files count as resolved work, not successful hashes. Rates/ETA are estimates; omit ETA without enough data. Pausing preserves counters.
 

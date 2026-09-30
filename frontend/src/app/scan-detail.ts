@@ -22,6 +22,7 @@ export function averageRate(job: Job): string | null {
     @if (scan(); as value) {
       <p><a mat-flat-button [routerLink]="['/scans',value.id,'files']">Open file explorer and notes</a></p>
       <p class="eyebrow">SCAN EVIDENCE</p><h1>{{ value.name }}</h1>
+      @if (value.unsafeFast) { <p class="notice"><strong>UNSAFE FAST MODE</strong> — source safety and consistency validation is bypassed for remaining work in this scan. Do not treat these results as validated evidence.</p> }
       <p class="small muted">Created {{ value.createdAt | date:'medium':'UTC' }} UTC · {{ value.id }}</p>
       <section class="panel" aria-label="Scan progress"><div class="section-head"><h2>Scan progress · {{ value.job.phase }}</h2><span class="badge" [class.blocked]="value.job.errorCount !== '0'">{{ value.job.state }}</span></div>
         <p class="notice"><strong>{{ value.inventoryFrozenAt ? 'Inventory finished.' : 'Scan incomplete.' }}</strong>
@@ -46,13 +47,17 @@ export function averageRate(job: Job): string | null {
           Last checkpoint: {{ (value.job.checkpointAt | date:'medium':'UTC') || 'None' }} UTC.</p>
         <div class="actions">
           @if (value.job.state === 'QUEUED' || value.job.state === 'RUNNING') { <button mat-stroked-button (click)="control('pause')" [disabled]="busy()">Pause</button> }
-          @if (value.job.state === 'PAUSED' || value.job.state === 'INTERRUPTED') { <button mat-flat-button (click)="control('resume')" [disabled]="busy()">Resume</button> }
+          @if (value.job.state === 'PAUSED' || value.job.state === 'INTERRUPTED') {
+            <button mat-flat-button (click)="control('resume')" [disabled]="busy()">{{ value.unsafeFast ? 'Resume' : 'Resume safely' }}</button>
+            @if (!value.unsafeFast) { <button mat-stroked-button (click)="unsafeResumeJob.set(value.job.id)" [disabled]="busy()">Resume in unsafe fast mode</button> }
+          }
           @if (canCancel(value.job)) { <button mat-stroked-button (click)="cancelJob.set(value.job.id)" [disabled]="busy()">Cancel scan</button> }
           <button mat-button (click)="load()">Refresh progress</button>
         </div>
         <p class="small muted">Progress refreshes every ten seconds. Closing this view does not stop server work.</p>
       </section>
       @if (cancelJob(); as jobId) { <section class="panel" aria-label="Confirm cancellation"><h2>Cancel unfinished work?</h2><p>Unfinished work will stop at a safe checkpoint. Committed results remain. A blocked filesystem call may delay cancellation.</p><button mat-flat-button (click)="confirmCancel(jobId)" [disabled]="busy()">Confirm cancellation</button><button mat-button (click)="cancelJob.set(null)">Keep running</button></section> }
+      @if (unsafeResumeJob(); as jobId) { <section class="panel" aria-label="Confirm unsafe resume"><h2>Resume in unsafe fast mode?</h2><p class="notice">This permanently enables unsafe fast mode for the remaining work in this scan. Runtime mount, overlap, root identity and file consistency checks will be bypassed. Already committed results remain unchanged.</p><button mat-flat-button (click)="confirmUnsafeResume(jobId)" [disabled]="busy()">Confirm unsafe resume</button><button mat-button (click)="unsafeResumeJob.set(null)">Keep paused</button></section> }
       <section class="panel"><div class="section-head"><h2>Hashing and analysis</h2><span class="badge">{{ value.latestJob.state }} · {{ value.latestJob.phase }}</span></div>
         <div class="metrics"><div><strong>{{ value.latestJob.candidateFiles }}</strong><span>Candidate files</span></div>
           <div><strong>{{ value.latestJob.hashedFiles }}</strong><span>Completed fresh hashes</span></div>
@@ -67,7 +72,10 @@ export function averageRate(job: Job): string | null {
           <p class="small path">{{ job.id }} · {{ job.state }} · {{ job.phase }} · {{ job.hashedFiles }} fresh hashes · {{ job.currentPath ?? '' }}</p>
           @if (job.blockCode) { <p class="notice">{{ job.blockCode }}</p> }
           @if (job.state === 'QUEUED' || job.state === 'RUNNING') { <button mat-button (click)="control('pause',job.id)" [disabled]="busy()">Pause follow-up job</button> }
-          @if (job.state === 'PAUSED' || job.state === 'INTERRUPTED') { <button mat-button (click)="control('resume',job.id)" [disabled]="busy()">Resume follow-up job</button> }
+          @if (job.state === 'PAUSED' || job.state === 'INTERRUPTED') {
+            <button mat-button (click)="control('resume',job.id)" [disabled]="busy()">Resume follow-up job</button>
+            @if (!value.unsafeFast) { <button mat-button (click)="unsafeResumeJob.set(job.id)" [disabled]="busy()">Resume unsafe fast</button> }
+          }
           @if (canCancel(job)) { <button mat-button (click)="cancelJob.set(job.id)" [disabled]="busy()">Cancel follow-up job</button> }
         }
       </section>
@@ -150,7 +158,9 @@ export class ScanDetail implements OnInit, OnDestroy {
   readonly directory = signal<string | null>(null); readonly detail = signal<Observation | null>(null);
   readonly rate = signal<string | null>(null);
   readonly cancelJob = signal<string | null>(null);
+  readonly unsafeResumeJob = signal<string | null>(null);
   async confirmCancel(jobId: string): Promise<void> { await this.control('cancel',jobId); this.cancelJob.set(null); }
+  async confirmUnsafeResume(jobId: string): Promise<void> { await this.control('resume',jobId,true); this.unsafeResumeJob.set(null); }
   readonly forceConfirmation = signal(false); readonly attempts = signal<HashAttemptPage | null>(null);
   private hashRequest?: {id: string; force: boolean; key: string};
   private timer?: ReturnType<typeof setTimeout>; private destroyed = false; private loading = false;
@@ -175,10 +185,10 @@ export class ScanDetail implements OnInit, OnDestroy {
       if (!this.destroyed) this.timer = setTimeout(() => void this.load(), 10000);
     }
   }
-  async control(action: 'pause' | 'resume' | 'cancel', jobId?: string): Promise<void> {
+  async control(action: 'pause' | 'resume' | 'cancel', jobId?: string, unsafeFast = false): Promise<void> {
     const value = this.scan(); if (!value || this.busy()) return;
     this.busy.set(true); this.error.set('');
-    try { const job = await this.api.control(jobId ?? value.job.id,action); if (!jobId) this.scan.update(v => v ? {...v,job} : v); await this.load(); }
+    try { const job = await this.api.control(jobId ?? value.job.id,action,unsafeFast); if (!jobId) this.scan.update(v => v ? {...v,job} : v); await this.load(); }
     catch (e) { this.error.set(errorMessage(e)); }
     finally { this.busy.set(false); }
   }

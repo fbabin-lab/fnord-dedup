@@ -65,9 +65,11 @@ If only the contents of `application.yml` changed and Compose did not recreate t
 
 By default, the runtime checks the opened mount's read-only flag **and** the actual container mount table. Writable roots are blocked. `cross-mounts: false` excludes nested mount boundaries; explicit `true` requires all included mounts to be read-only. Ordinary nested roots and backing-directory bind aliases are flagged as overlapping. Application-owned storage must not appear within the included source data. There is no write probe in source validation/preflight.
 
-### Unsafe fast source mode
+### Unsafe fast mode
 
-For performance benchmarking or trusted local datasets, one source may explicitly set `unsafe-fast: true` in `deploy/application.yml`:
+Unsafe fast mode is **off by default** and changes the evidence model. The normal operator workflow is scan-level: enable **Unsafe fast mode** when creating a scan in the WebUI. A PAUSED or INTERRUPTED scan can also be resumed with **Resume in unsafe fast mode**; that permanently promotes the scan to unsafe mode for all remaining work and cannot be reverted for that scan. Already committed observations/results are retained.
+
+A source may also set `unsafe-fast: true` in `deploy/application.yml` as a server-side default. Selecting such a source makes the resulting scan unsafe even if the WebUI checkbox was not explicitly selected.
 
 ```yaml
 fnord:
@@ -77,7 +79,7 @@ fnord:
       unsafe-fast: true
 ```
 
-This mode is **off by default** and changes the evidence model. It bypasses runtime read-only/mount-table checks, application-storage/overlap checks, repeated root/directory identity checks, per-component path reopening, nested-mount exclusion, and pre/post file consistency validation. Directory/file paths are opened directly beneath the configured root, metadata is collected once for persistence, and regular-file type gating remains before content reads. The public filesystem adapter still exposes no write/delete/rename/execute operation, and Docker should still mount the source `read_only: true`; however, the application no longer verifies those guarantees.
+Unsafe mode It bypasses runtime read-only/mount-table checks, application-storage/overlap checks, repeated root/directory identity checks, per-component path reopening, nested-mount exclusion, and pre/post file consistency validation. Directory/file paths are opened directly beneath the configured root, metadata is collected once for persistence, and regular-file type gating remains before content reads. The public filesystem adapter still exposes no write/delete/rename/execute operation, and Docker should still mount the source `read_only: true`; however, the application no longer verifies those guarantees.
 
 An unsafe-fast scan can therefore include changed files, crossed mount boundaries, overlapping sources, or inconsistent observations without detecting them. Do not treat its hashes/groups as validated forensic evidence or use them as the basis for destructive external actions without independent revalidation.
 
@@ -147,7 +149,7 @@ The detail page polls durable progress every ten seconds. It shows observed coun
 
 Pause/cancel are requests until the worker commits a bounded batch and closes its source handles. Under healthy I/O the worker checks between batches of at most 500 entries or about one second of enumeration; hashing checks durable stop state between bounded reads. These are deliberate sub-10-second exceptions that run only during operator-requested active work: they keep pause/cancel responsive and prevent the application from continuing substantial source I/O after a saved stop request. They are not idle background timers. A syscall blocked on a network filesystem can delay acknowledgement. “Waiting for I/O or a checkpoint” means five seconds without a checkpoint, not a promise of immediate interruption. Never forcibly terminate a worker thread.
 
-Resume validates the captured configuration revision, availability, read-only policy and mounted root identity. Restore the captured configuration or start a new scan when a source instance/binding changed. Original observations remain historical. An unfinished directory replays from its beginning; already committed paths are not duplicated or overwritten. Conflicting metadata marks the original observation unstable. No unvisited subtree is interpreted as deleted history.
+Safe resume validates the captured configuration revision, availability, read-only policy and mounted root identity. Unsafe resume explicitly skips those checks and marks the scan unsafe for its remaining work. Restore the captured configuration or start a new scan when a source instance/binding changed. Original observations remain historical. An unfinished directory replays from its beginning; already committed paths are not duplicated or overwritten. Conflicting metadata marks the original observation unstable. No unvisited subtree is interpreted as deleted history.
 
 A single database coordination lease permits one scheduler. It lasts 60 seconds and renews every 10 seconds while work is active. When no runnable job, export, or signature rematch exists, the worker performs only one read-only wake check every 10 seconds and does not acquire or heartbeat the scheduler lease, avoiding idle WAL writes. Once operator-requested durable work exists, successive work items run back-to-back rather than sleeping 10 seconds between directories or export chunks; this is the deliberate sub-10-second exception because adding 10 seconds per work item would make large scans impractically slow. Work claims have independent monotonically increasing tokens. Every result transaction checks scheduler ownership and the work lease under row locks. An expired work claim interrupts its job and requires explicit resume. Running more than one backend is not a scaling mode.
 

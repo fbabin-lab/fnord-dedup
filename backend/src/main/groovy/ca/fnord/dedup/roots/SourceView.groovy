@@ -13,6 +13,7 @@ class SourceView {
     String containerPath
     boolean enabled
     boolean crossMounts
+    boolean unsafeFast
     String status
     String detail
     int excludedMountCount

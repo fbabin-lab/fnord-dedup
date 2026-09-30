@@ -812,6 +812,7 @@ export interface components {
             containerPath: string;
             enabled: boolean;
             crossMounts: boolean;
+            unsafeFast: boolean;
             status: string;
             detail: string;
             excludedMountCount: number;
@@ -839,6 +840,8 @@ export interface components {
              * @default false
              */
             includeSignatureCandidates: boolean;
+            /** @default false */
+            unsafeFast?: boolean;
             /**
              * @default false
              * @constant
@@ -932,6 +935,7 @@ export interface components {
             latestJob: components["schemas"]["Job"];
             activeHashJobs: components["schemas"]["Job"][];
             includeSignatureCandidates?: boolean;
+            unsafeFast?: boolean;
             signatureCatalogRevision?: string;
             signatureRunId?: string | null;
         };
@@ -1859,7 +1863,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @default false */
+                    unsafeFast?: boolean;
+                };
+            };
+        };
         responses: {
             /** @description Stored metadata / durable state */
             200: {

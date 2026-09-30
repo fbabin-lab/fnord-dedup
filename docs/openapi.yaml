@@ -291,14 +291,24 @@ paths:
   /jobs/{jobId}/resume:
     post:
       operationId: resumeJob
-      description: Validate captured configuration, all selected roots and root identities before requeueing a PAUSED or INTERRUPTED
-        job.
+      description: Requeue a PAUSED or INTERRUPTED job. By default captured configuration/root validation runs first; optional unsafeFast permanently promotes the scan to unsafe fast mode for remaining work.
       parameters:
       - name: jobId
         in: path
         required: true
         schema: *id001
       - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                unsafeFast:
+                  type: boolean
+                  default: false
       responses:
         '200':
           description: Stored metadata / durable state
@@ -1804,6 +1814,7 @@ components:
       - containerPath
       - enabled
       - crossMounts
+      - unsafeFast
       - status
       - detail
       - excludedMountCount
@@ -1823,6 +1834,8 @@ components:
         enabled:
           type: boolean
         crossMounts:
+          type: boolean
+        unsafeFast:
           type: boolean
         status:
           type: string
@@ -1883,6 +1896,10 @@ components:
           default: false
           description: Default off. Hash the union of duplicate sizes and enabled signature sizes in the captured creation-time
             catalog revision.
+        unsafeFast:
+          type: boolean
+          default: false
+          description: Explicitly bypass runtime source safety and consistency checks for this scan.
         textIndexingEnabled:
           type: boolean
           const: false
@@ -2105,6 +2122,8 @@ components:
           items:
             $ref: '#/components/schemas/Job'
         includeSignatureCandidates: &id033
+          type: boolean
+        unsafeFast:
           type: boolean
         signatureCatalogRevision: *id007
         signatureRunId:

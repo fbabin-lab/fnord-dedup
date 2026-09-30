@@ -171,6 +171,26 @@ class InventoryIntegrationTest {
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM work_item',Integer))
     }
 
+    @Test void unsafeFastCanBeSelectedAtCreationAndPromotedOneWayOnResume() {
+        Map createdUnsafe = service.create([name:'Unsafe from start',sourceIds:[sourceId.toString()],unsafeFast:true],UUID.randomUUID().toString(),'operator',correlation)
+        assertTrue(service.scan(UUID.fromString(createdUnsafe.scanId)).unsafeFast as boolean)
+        assertEquals(Boolean.TRUE,store.parse(jdbc.queryForObject('SELECT snapshot::text FROM scan_source WHERE scan_id=?',String,UUID.fromString(createdUnsafe.scanId))).unsafeFast)
+        service.control(UUID.fromString(createdUnsafe.jobId),'cancel','operator',correlation)
+
+        def created = create()
+        UUID jobId = UUID.fromString(created.jobId)
+        assertEquals('PAUSED',service.control(jobId,'pause','operator',correlation).state)
+        assertEquals('QUEUED',service.control(jobId,'resume','operator',correlation,[unsafeFast:true]).state)
+        Map scan = service.scan(UUID.fromString(created.scanId))
+        assertTrue(scan.unsafeFast as boolean)
+        Map snapshot = store.parse(jdbc.queryForObject('SELECT snapshot::text FROM scan_source WHERE scan_id=?',String,UUID.fromString(created.scanId)))
+        assertTrue(snapshot.unsafeFast != Boolean.TRUE) // captured creation-time source snapshot remains immutable
+
+        assertEquals('PAUSED',service.control(jobId,'pause','operator',correlation).state)
+        assertEquals('QUEUED',service.control(jobId,'resume','operator',correlation).state)
+        assertTrue(service.scan(UUID.fromString(created.scanId)).unsafeFast as boolean)
+    }
+
     @Test void recoveryFencesOldWorkersAndRetainsFirstObservationOnConflict() {
         Files.writeString(fixture.resolve('file'),'hello')
         def created = create()
@@ -395,7 +415,7 @@ class InventoryIntegrationTest {
         @Override String getRevision() { testRevision }
         @Override SourceDefinition definition(UUID id) { definitions[id] }
         @Override FileMetadata identity(UUID id) { identities[id] }
-        @Override List<SourceView> list() { definitions.values().collect { s -> new SourceView(s.id,s.sourceInstanceId,s.key,s.label,s.containerPath,true,false,statusOverride ?: 'AVAILABLE','Generated test fixture',0) } }
+        @Override List<SourceView> list() { definitions.values().collect { s -> new SourceView(s.id,s.sourceInstanceId,s.key,s.label,s.containerPath,true,false,s.unsafeFast,statusOverride ?: 'AVAILABLE','Generated test fixture',0) } }
         @Override ReadOnlyFileAccess.Root openValidated(SourceDefinition source) {
             if (failRoot) throw new SourceAccessException('UNAVAILABLE','Generated unavailable root.')
             def delegate = nativeAccess.openRoot(source)

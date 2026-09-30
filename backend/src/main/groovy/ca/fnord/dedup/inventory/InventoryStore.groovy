@@ -277,9 +277,17 @@ class InventoryStore {
         tx.execute { status ->
             fence(c)
             boolean stable = true
-            for (InventoryEntry entry : entries) stable &= persist(c,entry)
+            BatchCounters counters = new BatchCounters()
+            for (InventoryEntry entry : entries) stable &= persist(c,entry,counters)
+            if (counters.entries > 0L) {
+                jdbc.update('''UPDATE job SET discovered_entries=discovered_entries+?,discovered_files=discovered_files+?,
+                    discovered_directories=discovered_directories+?,discovered_bytes=discovered_bytes+?,skipped_entries=skipped_entries+?,
+                    checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?''',
+                    counters.entries,counters.files,counters.directories,counters.bytes,counters.skipped,c.jobId)
+            } else {
+                jdbc.update('UPDATE job SET checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?',c.jobId)
+            }
             jdbc.update('UPDATE work_item SET checkpoint_at=clock_timestamp() WHERE id=?',c.id)
-            jdbc.update('UPDATE job SET checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?',c.jobId)
             fence(c)
             stable
         }
@@ -292,7 +300,7 @@ class InventoryStore {
         if (inserted != null) return (UUID)inserted.id
         (UUID)one('SELECT id FROM file_location WHERE source_id=? AND source_instance_id=? AND parent_id IS NOT DISTINCT FROM ? AND name_bytes=?',sourceId,instanceId,parentId,name).id
     }
-    private boolean persist(WorkClaim c, InventoryEntry e) {
+    private boolean persist(WorkClaim c, InventoryEntry e, BatchCounters counters) {
         UUID locationId = Arrays.equals(e.path,c.path) ? c.locationId : location(c.sourceId,c.sourceInstanceId,e.parentId,e.name,e.path)
         FileMetadata m = e.metadata
         String fp = json(e.fingerprint())
@@ -313,9 +321,11 @@ class InventoryStore {
             error(c,locationId,'UNSTABLE','Metadata differed on directory replay; the first committed observation was retained.')
         }
         if (inserted != null) {
-            jdbc.update('''UPDATE job SET discovered_entries=discovered_entries+1,discovered_files=discovered_files+?,
-                discovered_directories=discovered_directories+?,discovered_bytes=discovered_bytes+?,skipped_entries=skipped_entries+? WHERE id=?''',
-                e.type() == 'REGULAR' ? 1 : 0,e.type() == 'DIRECTORY' ? 1 : 0,m?.isRegular() && m.size >= 0L ? new BigDecimal(m.size) : BigDecimal.ZERO,e.excluded ? 1 : 0,c.jobId)
+            counters.entries++
+            if (e.type() == 'REGULAR') counters.files++
+            if (e.type() == 'DIRECTORY') counters.directories++
+            if (m?.isRegular() && m.size >= 0L) counters.bytes = counters.bytes.add(new BigDecimal(m.size))
+            if (e.excluded) counters.skipped++
             if (e.type() == 'DIRECTORY' && !e.excluded && e.errorCode == null && locationId != c.locationId) {
                 if (addWork(c.jobId,locationId)) jdbc.update('UPDATE work_item SET unresolved_children=unresolved_children+1 WHERE id=?',c.id)
             }
@@ -324,6 +334,15 @@ class InventoryStore {
         if (e.excluded) jdbc.update('UPDATE work_item SET has_issues=true WHERE id=?',c.id)
         stable
     }
+    @CompileStatic
+    private static final class BatchCounters {
+        long entries
+        long files
+        long directories
+        long skipped
+        BigDecimal bytes = BigDecimal.ZERO
+    }
+
     boolean addWork(UUID jobId, UUID locationId) {
         int count = jdbc.update("INSERT INTO work_item(id,job_id,location_id,kind) VALUES (?,?,?,'DIRECTORY') ON CONFLICT DO NOTHING",UUID.randomUUID(),jobId,locationId)
         if (count > 0) jdbc.update('UPDATE job SET pending_work=pending_work+1 WHERE id=?',jobId)

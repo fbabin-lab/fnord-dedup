@@ -7,13 +7,13 @@ import { Api, SourceList, errorMessage } from './api';
   template: `
     <p class="eyebrow">SERVER CONFIGURATION</p><h1>Sources</h1>
     <p class="lede">Registered directories and their last startup validation.</p>
-    <p class="notice">Source status reflects startup checks. Future scan and resume operations will revalidate the mount and source identity.</p>
+    <p class="notice">Source status reflects startup checks. Safe sources are revalidated during scan/resume; a source configured with unsafe-fast explicitly bypasses those guarantees.</p>
     @if (error()) { <p class="error" role="alert">{{ error() }}</p><button mat-button (click)="load()">Try again</button> }
     @if (data(); as listing) {
       @for (source of listing.sources; track source.id) {
         <section class="panel source"><div class="section-head"><h2>{{ source.label }}</h2><span class="badge" [class.blocked]="source.status !== 'AVAILABLE'">{{ source.status }}</span></div>
           <p class="path">{{ source.containerPath }}</p><p>{{ source.detail }}</p>
-          <dl><dt>Source key</dt><dd>{{ source.key }}</dd><dt>Nested mount policy</dt><dd>{{ source.crossMounts ? 'Included only when read-only' : 'Excluded' }}</dd><dt>Excluded mount boundaries</dt><dd>{{ source.excludedMountCount }}</dd></dl>
+          <dl><dt>Source key</dt><dd>{{ source.key }}</dd><dt>Access mode</dt><dd>{{ source.unsafeFast ? 'UNSAFE FAST' : 'Validated read-only' }}</dd><dt>Nested mount policy</dt><dd>{{ source.unsafeFast ? 'Not enforced' : (source.crossMounts ? 'Included only when read-only' : 'Excluded') }}</dd><dt>Excluded mount boundaries</dt><dd>{{ source.unsafeFast ? 'Not checked' : source.excludedMountCount }}</dd></dl>
         </section>
       } @empty {
         <section class="panel empty"><h2>No sources configured</h2><p>Add an existing directory as a read-only bind mount and add its registry entry in the server configuration. Restart the backend to validate it.</p><p class="small muted">See docs/OPERATIONS.md in your checkout for the source configuration example.</p></section>

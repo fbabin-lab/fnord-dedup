@@ -12,4 +12,5 @@ class SourceDefinition {
     String hostExportPrefix
     boolean enabled = true
     boolean crossMounts = false
+    boolean unsafeFast = false
 }

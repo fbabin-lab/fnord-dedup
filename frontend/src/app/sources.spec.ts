@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 describe('Sources', () => {
   it('renders labels as inert text and explains unavailable sources', async () => {
     const source = { id:'1', sourceInstanceId:'2', key:'fixture', label:'<img src=x onerror=alert(1)>',
-      containerPath:'/sources/archive', enabled:true, crossMounts:false, status:'WRITABLE_SOURCE',
+      containerPath:'/sources/archive', enabled:true, crossMounts:false, unsafeFast:false, status:'WRITABLE_SOURCE',
       detail:'The effective source mount is writable.', excludedMountCount:0 };
     const data: SourceList = { configurationRevision:'abc', sources:[source] };
     await TestBed.configureTestingModule({ imports:[Sources], providers:[{provide:Api,useValue:{sources:async () => data}}] }).compileComponents();

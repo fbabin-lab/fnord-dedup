@@ -125,7 +125,7 @@ Define narrow interfaces such as `ReadOnlyFileAccess`, `InventoryRepository`, `W
 
 **INV-01 — Source immutability.** No operation in the application, UI, API, startup scripts, or generated exports changes scanned source bytes, names, permissions, timestamps intentionally, links, or directory structure. The application must not mount the Docker socket, use privileged containers, or offer source filesystem write methods.
 
-**INV-02 — Read-only enforcement.** A source root is not eligible for scanning or reading unless its effective mount is verified read-only. Reject writable included submounts. Do not test read-only status by trying to create or delete a probe file in a real source root. Docker recursive read-only behavior depends on the kernel and mount configuration; the application must validate the actual container view. [R5]
+**INV-02 — Read-only enforcement.** Except for an explicitly configured `unsafeFast=true` source, a source root is not eligible for scanning or reading unless its effective mount is verified read-only. Reject writable included submounts. Do not test read-only status by trying to create or delete a probe file in a real source root. Docker recursive read-only behavior depends on the kernel and mount configuration; the application must validate the actual container view. [R5]
 
 **INV-03 — Evidence is versioned.** A checksum belongs to a specific scan observation and to the exact metadata observed around the read. A checksum computed for an earlier observation is not silently attached to a later scan.
 
@@ -151,11 +151,13 @@ Internal database records and application-owned export/scratch storage are separ
 
 Administrators add a source through Compose bind-mount configuration and backend configuration. The web UI can select an existing source but cannot create arbitrary host mounts or turn an arbitrary path into a scan root.
 
-Each configured source has a stable `sourceId` UUID, a stable `sourceInstanceId` UUID identifying the backing dataset, a short `key`, a display label, an absolute `containerPath`, optional `hostExportPrefix`, `enabled`, and a `crossMounts` flag defaulting to false. A new disk/dataset replacing an old source must use a new source instance. Do not infer permanent source identity from Linux device numbers alone.
+Each configured source has a stable `sourceId` UUID, a stable `sourceInstanceId` UUID identifying the backing dataset, a short `key`, a display label, an absolute `containerPath`, optional `hostExportPrefix`, `enabled`, a `crossMounts` flag defaulting to false, and an `unsafeFast` flag defaulting to false. A new disk/dataset replacing an old source must use a new source instance. Do not infer permanent source identity from Linux device numbers alone.
+
+`unsafeFast=true` is an explicit operator opt-out from the runtime source-safety/consistency guarantees in INV-02 and sections 4–5. It may be configured as a source default or selected per scan in the WebUI. A PAUSED or INTERRUPTED scan may be promoted one-way to unsafe mode when resumed; once promoted, all remaining work in that scan stays unsafe. It exists only as a performance/trusted-environment mode. The application still exposes no filesystem mutation methods and regular-file type gating remains before body reads, but runtime mount/read-only verification, overlap/application-storage checks, nested-mount exclusion, repeated directory/root identity checks, per-component path validation, and pre/post hash consistency checks are bypassed. Results from such a source must be labeled operationally as unsafe and must not be represented as having the normal validated evidence guarantees.
 
 Record a source-config revision and a scan-specific snapshot of configuration. A change to the binding or source identity while a job is active pauses affected work with `SOURCE_CONFIGURATION_CHANGED`. Disabling a source preserves its history and annotations. Removing a mount makes its current availability `UNAVAILABLE`, not “all files removed.”
 
-At startup and before resume, validate that enabled roots exist, are directories, are accessible to the runtime UID/GIDs, are read-only, do not contain application data volumes as included scan content, and do not overlap another selected root. Reject obvious nested roots and alias roots. Detect the same physical directory reached through another mount/bind alias and do not traverse it twice within a scan. Surface an explicit overlap/alias warning rather than inflating file counts.
+For safe-mode work, at startup and before safe resume, validate that enabled roots exist, are directories, are accessible to the runtime UID/GIDs, are read-only, do not contain application data volumes as included scan content, and do not overlap another selected root. An explicit unsafe scan/resume bypasses these runtime validations. Reject obvious nested roots and alias roots. Detect the same physical directory reached through another mount/bind alias and do not traverse it twice within a scan. Surface an explicit overlap/alias warning rather than inflating file counts.
 
 ### 4.2 Path identity
 
@@ -654,7 +656,7 @@ Use Angular standalone components, routing, reactive forms, Angular Material/CDK
 | View | Required behavior |
 |---|---|
 | Dashboard | Active jobs, scan history, configured source availability, duplicate/finding summary with scan context, and explicitly qualified space metrics. |
-| New scan | Select registered sources; name scan; show immutable read-only policy; default duplicate-only hashing; explicit signature-candidate and text-indexing toggles with read-cost/privacy explanation. |
+| New scan | Select registered sources; name scan; show default validated read-only policy; default duplicate-only hashing; explicit signature-candidate/text-indexing toggles plus an off-by-default Unsafe fast mode toggle with a prominent evidence warning. |
 | Scan details | Phase/status/counters/errors, pause/resume/cancel controls, current file, heartbeat/I/O status, per-root coverage, committed partial results, and child jobs. |
 | File explorer | Lazy-loaded database-backed directory tree and paged file table, breadcrumbs, selected scan, sorting/filtering, hidden files, symlink/special-file icons, and coverage badges. Browsing never triggers recursive rescanning. |
 | File details | Stored metadata, checksum and computation time, evidence validity, duplicate members, manual memo/tags, derived signature findings, review state, text-index status, and supported escaped snippets. |
@@ -667,7 +669,7 @@ Use Angular standalone components, routing, reactive forms, Angular Material/CDK
 
 ### 15.2 Interaction requirements
 
-Cancel requires confirmation explaining that unfinished work will stop and committed results remain. Pause is reversible and does not require a destructive-operation warning. Resume is disabled when source/config validation fails, with the reason shown. Finishing a scan in one browser updates other views on polling without losing edits.
+Cancel requires confirmation explaining that unfinished work will stop and committed results remain. Pause is reversible and does not require a destructive-operation warning. Safe resume is disabled when source/config validation fails, with the reason shown; PAUSED/INTERRUPTED work also offers a separately confirmed one-way Resume in unsafe fast mode action. Finishing a scan in one browser updates other views on polling without losing edits.
 
 Bulk selection distinguishes “selected page” from “all matching results.” The server freezes the latter before actions. Forms show optimistic-lock conflicts rather than discarding edits. A scan-root unavailable error does not erase the directory tree of a historical scan.
 

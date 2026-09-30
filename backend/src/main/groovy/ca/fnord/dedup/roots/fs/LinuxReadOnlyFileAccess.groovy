@@ -24,12 +24,12 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
         String path = source.containerPath
         if (path == null || !path.startsWith('/') || path.indexOf(0) >= 0)
             throw new IllegalArgumentException('The configured root must be an absolute path.')
-        RawPath.components(path.substring(1).getBytes(StandardCharsets.UTF_8))
+        if (!source.unsafeFast) RawPath.components(path.substring(1).getBytes(StandardCharsets.UTF_8))
         NativeLinux linux = new NativeLinux()
         int fd = open(linux, -100, path.getBytes(StandardCharsets.UTF_8), NativeLinux.DIRECTORY, 0L)
         try {
-            mountGuard.validateRoot(linux, fd, source)
-            return new RootHandle(linux, fd, linux.metadata(fd), source.crossMounts)
+            if (!source.unsafeFast) mountGuard.validateRoot(linux, fd, source)
+            return new RootHandle(linux, fd, linux.metadata(fd), source.crossMounts, source.unsafeFast)
         } catch (Throwable t) { closeFd(linux, fd); throw t }
     }
 
@@ -47,11 +47,12 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
         private final int fd
         private final FileMetadata original
         private final boolean crossMounts
+        private final boolean unsafeFast
         private final Set<AutoCloseable> children = new LinkedHashSet<>()
         private boolean closed
 
-        RootHandle(NativeLinux linux, int fd, FileMetadata original, boolean crossMounts) {
-            this.linux = linux; this.fd = fd; this.original = original; this.crossMounts = crossMounts
+        RootHandle(NativeLinux linux, int fd, FileMetadata original, boolean crossMounts, boolean unsafeFast) {
+            this.linux = linux; this.fd = fd; this.original = original; this.crossMounts = crossMounts; this.unsafeFast = unsafeFast
         }
         @Override FileMetadata identity() { ensureOpen(); original }
 
@@ -60,6 +61,10 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
         }
         private int resolve(byte[] path, int flags, boolean boundaryMetadata = false) {
             ensureOpen()
+            if (unsafeFast) {
+                byte[] target = path.length == 0 ? '.'.getBytes(StandardCharsets.US_ASCII) : path
+                return open(linux, fd, target, flags, NativeLinux.BENEATH)
+            }
             List<byte[]> parts = RawPath.components(path)
             int parent = fd
             boolean ownsParent = false
@@ -89,15 +94,15 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
         @Override byte[] readLink(byte[] path) {
             int entry = resolve(path, NativeLinux.PATH, true)
             try {
-                if (!linux.metadata(entry).isSymlink()) throw new SourceAccessException('NOT_A_SYMLINK', 'The entry is not a symbolic link.')
+                if (!unsafeFast && !linux.metadata(entry).isSymlink()) throw new SourceAccessException('NOT_A_SYMLINK', 'The entry is not a symbolic link.')
                 return linux.readLink(entry)
             } finally { closeFd(linux, entry) }
         }
         @Override ReadOnlyFileAccess.DirectoryCursor list(byte[] path) {
             int entry = resolve(path, NativeLinux.DIRECTORY)
             Pointer directory
-            FileMetadata originalDirectory
-            try { originalDirectory = linux.metadata(entry); directory = linux.directory(entry) }
+            FileMetadata originalDirectory = null
+            try { if (!unsafeFast) originalDirectory = linux.metadata(entry); directory = linux.directory(entry) }
             catch (Throwable t) { closeFd(linux, entry); throw t }
             Cursor cursor = new Cursor(entry, directory, path.clone() as byte[], originalDirectory)
             children.add(cursor)
@@ -108,8 +113,8 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
             int entry = resolve(path, NativeLinux.NONBLOCK)
             try {
                 FileMetadata before = linux.metadata(entry)
-                if (!before.isRegular()) throw new SourceAccessException('NOT_REGULAR', 'The opened entry is not a regular file.')
-                if (!expected.sameFingerprint(before) || !before.sameFingerprint(metadata(path)))
+                if (!before.isRegular()) throw new SourceAccessException('NOT_REGULAR', 'Only regular files can be read.')
+                if (!unsafeFast && (!expected.sameFingerprint(before) || !before.sameFingerprint(metadata(path))))
                     throw new SourceAccessException('CHANGED', 'The observed file has changed.')
                 FileHandle result = new FileHandle(entry, path.clone() as byte[], before)
                 children.add(result)
@@ -139,9 +144,11 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
             @Override byte[] next() {
                 ensureOpen()
                 if (done) throw new IllegalStateException('The directory cursor is closed.')
-                mountGuard.requireReadOnly(linux, entry)
-                if (!originalDirectory.sameObject(RootHandle.this.metadata(path)))
-                    throw new SourceAccessException('CHANGED', 'The directory entry changed during enumeration.')
+                if (!unsafeFast) {
+                    mountGuard.requireReadOnly(linux, entry)
+                    if (!originalDirectory.sameObject(RootHandle.this.metadata(path)))
+                        throw new SourceAccessException('CHANGED', 'The directory entry changed during enumeration.')
+                }
                 return linux.next(directory)
             }
             @Override void close() {
@@ -167,18 +174,19 @@ final class LinuxReadOnlyFileAccess implements ReadOnlyFileAccess {
             }
             @Override int read(byte[] buffer) {
                 check()
-                mountGuard.requireReadOnly(linux, entry)
+                if (!unsafeFast) mountGuard.requireReadOnly(linux, entry)
                 int count = linux.read(entry, buffer)
                 if (count < 0) eof = true
                 else {
                     bytesRead = Math.addExact(bytesRead, (long)count)
-                    if (bytesRead > before.size) throw new SourceAccessException('CHANGED', 'The file grew during reading.', 0, count)
+                    if (!unsafeFast && bytesRead > before.size) throw new SourceAccessException('CHANGED', 'The file grew during reading.', 0, count)
                 }
                 return count
             }
             @Override FileMetadata metadata() { check(); linux.metadata(entry) }
             @Override boolean validateComplete() {
                 check()
+                if (unsafeFast) return eof
                 mountGuard.requireReadOnly(linux, entry)
                 try {
                     return eof && bytesRead == before.size && before.sameFingerprint(metadata()) &&

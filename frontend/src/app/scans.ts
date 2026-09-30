@@ -19,11 +19,13 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
         <mat-form-field appearance="outline"><mat-label>Scan name</mat-label><input matInput [formControl]="name" [readonly]="busy()" maxlength="200" (input)="resetKey()" required></mat-form-field>
         <fieldset><legend>Configured sources</legend>
           @for (source of sources()?.sources ?? []; track source.id) {
-            <label class="source-choice"><input type="checkbox" [checked]="selected().has(source.id)" [disabled]="source.status !== 'AVAILABLE' || busy()" (change)="toggle(source.id, $event)">
-              <span>{{ source.label }} <span class="small muted">{{ source.status }}</span></span></label>
+            <label class="source-choice"><input type="checkbox" [checked]="selected().has(source.id)" [disabled]="!canSelectSource(source.status) || busy()" (change)="toggle(source.id, $event)">
+              <span>{{ source.label }} <span class="small muted">{{ source.status }}{{ source.unsafeFast ? ' · UNSAFE DEFAULT' : '' }}</span></span></label>
           } @empty { <p>No sources configured. <a routerLink="/sources">Review source setup</a>.</p> }
         </fieldset>
         <label class="source-choice"><input type="checkbox" [formControl]="includeSignatures" (change)="resetKey()"> Include known-signature size candidates</label><p class="small muted">Off by default. Enabling this reads additional unique-size files matching enabled signature sizes in the catalog captured when the scan starts.</p>
+        <label class="source-choice"><input type="checkbox" [formControl]="unsafeFast" (change)="unsafeModeChanged()"> Unsafe fast mode</label>
+        <p class="notice">Unsafe fast mode bypasses mount, overlap and consistency validation for speed. Results do not carry the normal validated evidence guarantees. The source is still expected to be mounted read-only.</p>
         <button mat-flat-button type="submit" [disabled]="name.invalid || selected().size === 0 || busy()">{{ busy() ? 'Queueing…' : 'Start scan' }}</button>
       </form>
     </section>
@@ -45,7 +47,8 @@ export class Scans implements OnInit {
   private readonly router = inject(Router);
   readonly name = new FormControl('', {nonNullable:true, validators:[Validators.required, Validators.maxLength(200)]});
   readonly includeSignatures = new FormControl(false,{nonNullable:true});
-  readonly form = new FormGroup({name:this.name,includeSignatures:this.includeSignatures});
+  readonly unsafeFast = new FormControl(false,{nonNullable:true});
+  readonly form = new FormGroup({name:this.name,includeSignatures:this.includeSignatures,unsafeFast:this.unsafeFast});
   readonly selected = signal(new Set<string>());
   readonly sources = signal<SourceList | null>(null);
   readonly page = signal<ScanPage | null>(null);
@@ -54,9 +57,23 @@ export class Scans implements OnInit {
   private requestKey = crypto.randomUUID();
   ngOnInit(): void { void this.load(); void this.loadSources(); }
   resetKey(): void { this.requestKey = crypto.randomUUID(); }
+  canSelectSource(status: string): boolean {
+    return status === 'AVAILABLE' || (this.unsafeFast.value && ['WRITABLE_SOURCE','WRITABLE_SUBMOUNT','SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP'].includes(status));
+  }
+  unsafeModeChanged(): void {
+    if (!this.unsafeFast.value) {
+      const allowed = new Set((this.sources()?.sources ?? []).filter(source => source.status === 'AVAILABLE' && !source.unsafeFast).map(source => source.id));
+      this.selected.set(new Set([...this.selected()].filter(id => allowed.has(id))));
+    }
+    this.resetKey();
+  }
   toggle(id: string, event: Event): void {
     const selected = new Set(this.selected());
-    if ((event.target as HTMLInputElement).checked) selected.add(id); else selected.delete(id);
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked) {
+      selected.add(id);
+      if (this.sources()?.sources.find(source => source.id === id)?.unsafeFast) this.unsafeFast.setValue(true);
+    } else selected.delete(id);
     this.selected.set(selected); this.resetKey();
   }
   async load(cursor?: string | null): Promise<void> {
@@ -70,7 +87,7 @@ export class Scans implements OnInit {
     if (this.name.invalid || this.busy() || this.selected().size === 0) return;
     this.busy.set(true); this.error.set('');
     try {
-      const created = await this.api.createScan({name:this.name.value, sourceIds:[...this.selected()], hashAlgorithm:'SHA-256', includeSignatureCandidates:this.includeSignatures.value, textIndexingEnabled:false},this.requestKey);
+      const created = await this.api.createScan({name:this.name.value, sourceIds:[...this.selected()], hashAlgorithm:'SHA-256', includeSignatureCandidates:this.includeSignatures.value, textIndexingEnabled:false, unsafeFast:this.unsafeFast.value},this.requestKey);
       await this.router.navigate(['/scans',created.scanId]);
     } catch (e) { this.error.set(errorMessage(e)); }
     finally { this.busy.set(false); }

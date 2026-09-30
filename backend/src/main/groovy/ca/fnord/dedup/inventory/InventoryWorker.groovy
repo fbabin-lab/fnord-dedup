@@ -106,12 +106,9 @@ class InventoryWorker implements SmartLifecycle {
             UUID sourceId = (UUID)row.source_id
             SourceView view = sources.list().find { SourceView v -> v.id == sourceId }
             if (view == null) throw new JobProblem(409,'SOURCE_CONFIGURATION_CHANGED','A selected source is no longer configured.')
-            if (view.status in ['SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP','WRITABLE_SOURCE','UNSUPPORTED_PLATFORM','NATIVE_LINK_ERROR','DISABLED'])
-                throw new JobProblem(409,view.status,'A selected source failed source-safety validation.')
-            if (view.status == 'AVAILABLE') {
-                WorkClaim rootClaim = new WorkClaim(id:c.id,jobId:c.jobId,scanId:c.scanId,sourceId:sourceId,owner:c.owner,schedulerToken:c.schedulerToken,token:c.token)
-                store.acceptRoot(rootClaim,sources.identity(sourceId))
-            }
+            if (view.status != 'AVAILABLE') throw new JobProblem(409,view.status,'A selected source failed source-safety validation.')
+            WorkClaim rootClaim = new WorkClaim(id:c.id,jobId:c.jobId,scanId:c.scanId,sourceId:sourceId,owner:c.owner,schedulerToken:c.schedulerToken,token:c.token)
+            store.acceptRoot(rootClaim,sources.identity(sourceId))
         }
     }
     private void controlBoundary(WorkClaim c) {

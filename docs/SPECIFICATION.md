@@ -281,7 +281,7 @@ Terminal jobs do not resume. The UI offers a new scan or an explicit follow-up r
 
 **Exports:** build an application-owned temporary artifact. Pause/cancel must never expose it as a complete export. Resume may restart file assembly from persisted selected rows rather than append blindly.
 
-Under healthy local I/O, target acknowledgement of a pause/cancel request within two seconds and checkpointing within five seconds. These are acceptance targets, not guarantees for a blocked kernel/network read. Expose non-responsive workers and last heartbeat. Never use unsafe thread termination.
+Under healthy local I/O, inventory/database batch controls may acknowledge sooner, but hashing checks durable pause/cancel state at most once every ten seconds and immediately before result publication. A blocked kernel/network read can delay acknowledgement further. Expose non-responsive workers and last heartbeat. Never use unsafe thread termination.
 
 ### 6.4 Process restart and shutdown
 

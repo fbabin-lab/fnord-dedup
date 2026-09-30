@@ -8,9 +8,10 @@ RUN ./gradlew --no-daemon test bootJar
 
 FROM eclipse-temurin:21.0.12.1_1-jre-noble@sha256:817f192b914584dac49595ae662461250b21aaa31df8698feac767d08defb3d0
 RUN groupadd --gid 10001 fnord && useradd --uid 10001 --gid 10001 --no-create-home fnord \
-    && mkdir -p /app /var/lib/fnord/artifacts && chown 10001:10001 /var/lib/fnord/artifacts
+    && mkdir -p /app /var/lib/fnord/artifacts /run/jna \
+    && chown 10001:10001 /var/lib/fnord/artifacts /run/jna
 WORKDIR /app
 COPY --from=build /build/build/libs/fnord-dedup.jar ./fnord-dedup.jar
 USER 10001:10001
 EXPOSE 8080
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=65", "-Djava.io.tmpdir=/tmp", "-Djna.tmpdir=/tmp", "-jar", "/app/fnord-dedup.jar"]
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=65", "-Djava.io.tmpdir=/tmp", "-Djna.tmpdir=/run/jna", "-jar", "/app/fnord-dedup.jar"]

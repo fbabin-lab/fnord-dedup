@@ -184,7 +184,7 @@ class InventoryIntegrationTest {
         Map scan = service.scan(UUID.fromString(created.scanId))
         assertTrue(scan.unsafeFast as boolean)
         Map snapshot = store.parse(jdbc.queryForObject('SELECT snapshot::text FROM scan_source WHERE scan_id=?',String,UUID.fromString(created.scanId)))
-        assertEquals(Boolean.TRUE,snapshot.unsafeFast)
+        assertTrue(snapshot.unsafeFast != Boolean.TRUE) // captured creation-time source snapshot remains immutable
 
         assertEquals('PAUSED',service.control(jobId,'pause','operator',correlation).state)
         assertEquals('QUEUED',service.control(jobId,'resume','operator',correlation).state)

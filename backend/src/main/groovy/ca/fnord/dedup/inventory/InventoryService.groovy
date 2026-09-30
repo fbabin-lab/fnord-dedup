@@ -95,7 +95,7 @@ class InventoryService {
         }
     }
 
-    Map<String,Object> control(UUID id, String action, String actor, String correlationId, Map<String,Object> body = Map.of()) {
+    Map<String,Object> control(UUID id, String action, String actor, String correlationId, Map<String,Object> body = new LinkedHashMap<String,Object>()) {
         if (!Set.of('unsafeFast').containsAll(body.keySet()) || (body.containsKey('unsafeFast') && !(body.unsafeFast instanceof Boolean)))
             throw new JobProblem(422,'INVALID_CONTROL_OPTIONS','Only boolean unsafeFast is supported for job control.')
         if (action != 'resume' && !body.isEmpty())

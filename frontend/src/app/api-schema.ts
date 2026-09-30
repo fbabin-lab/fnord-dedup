@@ -1863,7 +1863,14 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @default false */
+                    unsafeFast?: boolean;
+                };
+            };
+        };
         responses: {
             /** @description Stored metadata / durable state */
             200: {

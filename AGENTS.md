@@ -4,7 +4,7 @@ Read `docs/SPECIFICATION.md`, `docs/IMPLEMENTATION_PLAN.md`, and `docs/ACCEPTANC
 
 ## Non-negotiable constraints
 
-The application only inventories, hashes, indexes explicitly authorized text, matches signatures, annotates database records, calculates review plans, and exports descriptive lists. It never deletes, renames, moves, quarantines, modifies, relinks, chmods, or executes scanned files. Do not add an execution path for exported plans. No generated deletion commands or shell scripts. Source bind mounts are read-only; fail closed on writable included mounts without trying to write a probe.
+The application only inventories, hashes, indexes explicitly authorized text, matches signatures, annotates database records, calculates review plans, and exports descriptive lists. It never deletes, renames, moves, quarantines, modifies, relinks, chmods, or executes scanned files. Do not add an execution path for exported plans. No generated deletion commands or shell scripts. Source bind mounts are read-only by default; fail closed on writable included mounts without trying to write a probe. The explicit per-source `unsafe-fast` mode is the only production exception: it bypasses runtime source validation for performance, must remain opt-in/off by default, and must never add write/delete/rename/execute capabilities.
 
 Backend application code is Groovy with Spring Boot. Frontend is Angular/TypeScript. Persistence is PostgreSQL with Flyway. Deployment is Docker Compose. Use English only, without internationalization. Preserve the existing repository license and unrelated files.
 

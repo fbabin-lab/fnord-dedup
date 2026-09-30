@@ -82,10 +82,10 @@ class InventoryWorker implements SmartLifecycle {
             return pending
         }
         try {
-            if (claim.kind == 'SELECT_CANDIDATES') { new HashPipeline(store,sources).select(claim); return }
-            if (claim.kind == 'SIGNATURE_SELECT') { new SignaturePipeline(store).select(claim); return }
-            if (claim.kind == 'SIGNATURE_MATCH') { new SignaturePipeline(store).run(claim); return }
-            if (claim.kind == 'GROUP') { new AnalysisPipeline(store).run(claim); return }
+            if (claim.kind == 'SELECT_CANDIDATES') { new HashPipeline(store,sources).select(claim); return true }
+            if (claim.kind == 'SIGNATURE_SELECT') { new SignaturePipeline(store).select(claim); return true }
+            if (claim.kind == 'SIGNATURE_MATCH') { new SignaturePipeline(store).run(claim); return true }
+            if (claim.kind == 'GROUP') { new AnalysisPipeline(store).run(claim); return true }
             if (claim.configurationRevision != sources.revision) throw new JobProblem(409,'SOURCE_CONFIGURATION_CHANGED','Source configuration changed.')
             if (preparedJob != claim.jobId) { prepare(claim); preparedJob = claim.jobId }
             if (claim.kind == 'HASH') new HashPipeline(store,sources).hash(claim,{ -> stopping } as java.util.function.BooleanSupplier)

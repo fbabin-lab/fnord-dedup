@@ -63,7 +63,23 @@ When configuring manually, repeat **both** the bind declaration and registry ent
 
 If only the contents of `application.yml` changed and Compose did not recreate the container, run `./scripts/fnord restart backend` and wait for health. Source status is refreshed at backend startup and explicit job start/resume validation. The API reads cached validation; refreshing the Sources page does not trigger a filesystem scan.
 
-The runtime checks the opened mount's read-only flag **and** the actual container mount table. Writable roots are blocked. `cross-mounts: false` excludes nested mount boundaries; explicit `true` requires all included mounts to be read-only. Ordinary nested roots and backing-directory bind aliases are flagged as overlapping. Application-owned storage must not appear within the included source data. There is no write probe in source validation/preflight.
+By default, the runtime checks the opened mount's read-only flag **and** the actual container mount table. Writable roots are blocked. `cross-mounts: false` excludes nested mount boundaries; explicit `true` requires all included mounts to be read-only. Ordinary nested roots and backing-directory bind aliases are flagged as overlapping. Application-owned storage must not appear within the included source data. There is no write probe in source validation/preflight.
+
+### Unsafe fast source mode
+
+For performance benchmarking or trusted local datasets, one source may explicitly set `unsafe-fast: true` in `deploy/application.yml`:
+
+```yaml
+fnord:
+  sources:
+    - key: archive
+      # ... normal id/source/path fields ...
+      unsafe-fast: true
+```
+
+This mode is **off by default** and changes the evidence model. It bypasses runtime read-only/mount-table checks, application-storage/overlap checks, repeated root/directory identity checks, per-component path reopening, nested-mount exclusion, and pre/post file consistency validation. Directory/file paths are opened directly beneath the configured root, metadata is collected once for persistence, and regular-file type gating remains before content reads. The public filesystem adapter still exposes no write/delete/rename/execute operation, and Docker should still mount the source `read_only: true`; however, the application no longer verifies those guarantees.
+
+An unsafe-fast scan can therefore include changed files, crossed mount boundaries, overlapping sources, or inconsistent observations without detecting them. Do not treat its hashes/groups as validated forensic evidence or use them as the basis for destructive external actions without independent revalidation.
 
 ### UID/GID and native library loading
 
@@ -120,7 +136,7 @@ Keep the loopback default for local use. For deliberate remote access, terminate
 
 `scripts/test-all` requires Java 21, Node 24 and Docker and runs the build/unit/real-PostgreSQL integration gate. `scripts/smoke-test` creates a uniquely named disposable Compose project, generates benign fixtures and temporary credentials, verifies HTTP authentication/CSRF, mount statuses, recursive inventory and database-backed browsing, attempts a write **only inside its disposable fixture**, checks fixture metadata/content afterward, and removes only its own volumes. The browser test requires Chromium dependencies; on a development host install them with `cd frontend && npx playwright install --with-deps chromium` if necessary. No operator configuration or source mount is used by the smoke test.
 
-Actual nested host-mount integration testing requires an explicitly prepared disposable environment. Native unit/inventory tests exercise real Linux native operations on generated writable fixtures using a test-only mount-guard seam, plus separate production writable-root rejection. This seam has no application configuration flag and is not used by the deployed application. It does not substitute for the Docker read-only mount gate.
+Actual nested host-mount integration testing requires an explicitly prepared disposable environment. Native unit/inventory tests exercise real Linux native operations on generated writable fixtures using a test-only mount-guard seam, plus separate production writable-root rejection. The production `unsafe-fast` source option is distinct from this test seam: it is an explicit operator performance mode and deliberately suspends runtime source-safety validation.
 
 
 ## Inventory and job controls

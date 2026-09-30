@@ -54,7 +54,11 @@ class SourceRegistry {
                     identities.put(source.id, root.identity())
                 } catch (SourceAccessException e) { status = e.code; detail = e.message }
                 catch (IOException | SecurityException e) { status = 'UNAVAILABLE'; detail = 'The configured source is unavailable to this process.' }
-                catch (LinkageError e) { status = 'UNSUPPORTED_PLATFORM'; detail = 'Required Linux native support is unavailable.' }
+                catch (LinkageError e) {
+                    status = 'NATIVE_LINK_ERROR'
+                    String message = e.message == null || e.message.isBlank() ? '(no native-loader message)' : e.message
+                    detail = 'Linux native support failed to link: ' + e.class.simpleName + ': ' + message
+                }
             }
             found.add(view(source, status, detail, excluded))
         }

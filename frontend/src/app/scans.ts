@@ -19,12 +19,12 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
         <mat-form-field appearance="outline"><mat-label>Scan name</mat-label><input matInput [formControl]="name" [readonly]="busy()" maxlength="200" (input)="resetKey()" required></mat-form-field>
         <fieldset><legend>Configured sources</legend>
           @for (source of sources()?.sources ?? []; track source.id) {
-            <label class="source-choice"><input type="checkbox" [checked]="selected().has(source.id)" [disabled]="source.status !== 'AVAILABLE' || busy()" (change)="toggle(source.id, $event)">
+            <label class="source-choice"><input type="checkbox" [checked]="selected().has(source.id)" [disabled]="!canSelectSource(source.status) || busy()" (change)="toggle(source.id, $event)">
               <span>{{ source.label }} <span class="small muted">{{ source.status }}</span></span></label>
           } @empty { <p>No sources configured. <a routerLink="/sources">Review source setup</a>.</p> }
         </fieldset>
         <label class="source-choice"><input type="checkbox" [formControl]="includeSignatures" (change)="resetKey()"> Include known-signature size candidates</label><p class="small muted">Off by default. Enabling this reads additional unique-size files matching enabled signature sizes in the catalog captured when the scan starts.</p>
-        <label class="source-choice"><input type="checkbox" [formControl]="unsafeFast" (change)="resetKey()"> Unsafe fast mode</label>
+        <label class="source-choice"><input type="checkbox" [formControl]="unsafeFast" (change)="unsafeModeChanged()"> Unsafe fast mode</label>
         <p class="notice">Unsafe fast mode bypasses mount, overlap and consistency validation for speed. Results do not carry the normal validated evidence guarantees. The source is still expected to be mounted read-only.</p>
         <button mat-flat-button type="submit" [disabled]="name.invalid || selected().size === 0 || busy()">{{ busy() ? 'Queueing…' : 'Start scan' }}</button>
       </form>
@@ -57,6 +57,16 @@ export class Scans implements OnInit {
   private requestKey = crypto.randomUUID();
   ngOnInit(): void { void this.load(); void this.loadSources(); }
   resetKey(): void { this.requestKey = crypto.randomUUID(); }
+  canSelectSource(status: string): boolean {
+    return status === 'AVAILABLE' || (this.unsafeFast.value && ['WRITABLE_SOURCE','WRITABLE_SUBMOUNT','SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP'].includes(status));
+  }
+  unsafeModeChanged(): void {
+    if (!this.unsafeFast.value) {
+      const allowed = new Set((this.sources()?.sources ?? []).filter(source => source.status === 'AVAILABLE').map(source => source.id));
+      this.selected.set(new Set([...this.selected()].filter(id => allowed.has(id))));
+    }
+    this.resetKey();
+  }
   toggle(id: string, event: Event): void {
     const selected = new Set(this.selected());
     if ((event.target as HTMLInputElement).checked) selected.add(id); else selected.delete(id);

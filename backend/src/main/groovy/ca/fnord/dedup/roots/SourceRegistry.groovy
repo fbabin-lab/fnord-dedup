@@ -5,6 +5,7 @@ import groovy.transform.CompileStatic
 import jakarta.annotation.PostConstruct
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Service
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import tools.jackson.databind.ObjectMapper
 import java.nio.charset.StandardCharsets
@@ -15,7 +16,7 @@ import java.security.MessageDigest
 @CompileStatic
 @Service
 class SourceRegistry {
-    private static final LOG = LoggerFactory.getLogger(SourceRegistry)
+    private static final Logger LOG = LoggerFactory.getLogger(SourceRegistry)
     private final SourceProperties properties
     private final ReadOnlyFileAccess access
     private final JdbcTemplate jdbc

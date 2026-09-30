@@ -50,7 +50,7 @@ export function averageRate(job: Job): string | null {
           @if (canCancel(value.job)) { <button mat-stroked-button (click)="cancelJob.set(value.job.id)" [disabled]="busy()">Cancel scan</button> }
           <button mat-button (click)="load()">Refresh progress</button>
         </div>
-        <p class="small muted">Progress refreshes every two seconds while active. Closing this view does not stop server work.</p>
+        <p class="small muted">Progress refreshes every ten seconds. Closing this view does not stop server work.</p>
       </section>
       @if (cancelJob(); as jobId) { <section class="panel" aria-label="Confirm cancellation"><h2>Cancel unfinished work?</h2><p>Unfinished work will stop at a safe checkpoint. Committed results remain. A blocked filesystem call may delay cancellation.</p><button mat-flat-button (click)="confirmCancel(jobId)" [disabled]="busy()">Confirm cancellation</button><button mat-button (click)="cancelJob.set(null)">Keep running</button></section> }
       <section class="panel"><div class="section-head"><h2>Hashing and analysis</h2><span class="badge">{{ value.latestJob.state }} · {{ value.latestJob.phase }}</span></div>
@@ -172,7 +172,7 @@ export class ScanDetail implements OnInit, OnDestroy {
     } catch (e) { if (!this.destroyed) this.error.set(errorMessage(e)); }
     finally {
       this.loading = false;
-      if (!this.destroyed) this.timer = setTimeout(() => void this.load(), this.scan() && (active(this.scan()!.job) || this.scan()!.activeHashJobs.some(active)) ? 2000 : 10000);
+      if (!this.destroyed) this.timer = setTimeout(() => void this.load(), 10000);
     }
   }
   async control(action: 'pause' | 'resume' | 'cancel', jobId?: string): Promise<void> {

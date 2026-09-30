@@ -34,6 +34,19 @@ class LinuxReadOnlyFileAccessTest {
     }
     static byte[] bytes(String value) { value.getBytes('UTF-8') }
 
+    @Test void nativeErrnoClassificationPreservesOperationSpecificInvalidArgument() {
+        def invalid = NativeLinux.failure('openat2', 'OPEN_REJECTED', 22)
+        assertEquals('OPEN_REJECTED', invalid.code)
+        assertEquals(22, invalid.errno)
+        assertTrue(invalid.message.contains('openat2'))
+        assertTrue(invalid.message.contains('errno 22'))
+
+        def unavailable = NativeLinux.failure('openat2', 'OPEN_REJECTED', 38)
+        assertEquals('UNSUPPORTED_PLATFORM', unavailable.code)
+        assertEquals(38, unavailable.errno)
+        assertTrue(unavailable.message.contains('openat2'))
+    }
+
     @Test void writableMountIsRejectedWithoutMutation() {
         Files.writeString(fixture.resolve('file'), 'hello')
         def before = Files.readAttributes(fixture.resolve('file'), 'unix:mode,ino,size,lastModifiedTime,ctime')

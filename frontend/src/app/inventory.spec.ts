@@ -38,7 +38,9 @@ describe('durable inventory presentation', () => {
     const fixture = TestBed.createComponent(ScanDetail);
     fixture.detectChanges();
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(9999);
+    expect(api.scan).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
     expect(api.scan).toHaveBeenCalledTimes(2);
     fixture.destroy();
     await vi.advanceTimersByTimeAsync(20000);

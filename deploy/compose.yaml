@@ -13,7 +13,7 @@ services:
     networks: [database]
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U fnord -d fnord']
-      interval: 5s
+      interval: 10s
       timeout: 3s
       retries: 20
     restart: unless-stopped
@@ -36,7 +36,9 @@ services:
         target: fnord.security.password-hash
     volumes:
       - artifacts:/var/lib/fnord/artifacts
-    tmpfs: ['/tmp:size=128m,mode=1777']
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+      - /run/jna:size=16m,mode=0700,uid=10001,gid=10001,exec,nosuid,nodev
     read_only: true
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']

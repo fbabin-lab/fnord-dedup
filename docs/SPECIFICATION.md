@@ -231,7 +231,7 @@ Use one durable job framework for scan execution, manual hash requests, signatur
 
 Persist `job`, `work_item`, `job_event`, and typed result records in PostgreSQL. Work claims use short transactions and row locking, for example `FOR UPDATE SKIP LOCKED`, followed by filesystem work outside the transaction. PostgreSQL documents `SKIP LOCKED` as appropriate for avoiding contention among queue consumers; it is not a consistent general-purpose reporting view. [R11]
 
-Each claim carries an owner, monotonically increasing lease token, and expiry. A worker can commit results only while its token still owns the work item. Heartbeat/renew normally every 10 seconds with a 60-second lease; record the actual configured values. Fence late workers after recovery. Claim/result writes and counters are idempotent.
+Each claim carries an owner, monotonically increasing lease token, and expiry. A worker can commit results only while its token still owns the work item. Heartbeat/renew normally every 10 seconds with a 60-second lease; record the actual configured values. When no runnable durable work exists, the scheduler performs at most one read-only wake check every 10 seconds and does not hold or renew the scheduler lease. Once a job has runnable work, successive work items may continue immediately; this is intentionally exempt from the 10-second idle cadence so a scan does not incur a 10-second delay for every directory/chunk. Fence late workers after recovery. Claim/result writes and counters are idempotent.
 
 Do not keep one database transaction open for a whole directory tree or while reading a large file. Use a database coordination lock so an accidental second backend process cannot become a second scheduler. No horizontal scaling promise in v1.
 
@@ -295,7 +295,7 @@ Progress is a durable snapshot with job ID, scan ID, state, phase, start/update 
 
 Discovery has an unknown total: show counts and rate, not a fabricated percentage. After candidate selection, hashing can show completed candidate count and bytes against known totals. Failed/skipped files count as resolved work, not successful hashes. Rates/ETA are estimates; omit ETA without enough data. Pausing preserves counters.
 
-Use authenticated REST polling every two seconds while active and a slower interval while idle. Polling stops when the browser view is closed; server work does not. Browser reconnect reloads durable state. SSE is optional future enhancement, not a v1 requirement.
+Use authenticated REST polling no more often than every ten seconds. Polling stops when the browser view is closed; server work does not. Browser reconnect reloads durable state. SSE is optional future enhancement, not a v1 requirement.
 
 ## 7. Three-step scan pipeline
 

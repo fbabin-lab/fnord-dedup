@@ -50,9 +50,11 @@ class InventoryService {
                 SourceDefinition source = sources.definition(id)
                 SourceView view = sources.list().find { SourceView s -> s.id == id }
                 if (source == null || !source.enabled) throw new JobProblem(422,'INVALID_SOURCE','A selected source is unknown or disabled.')
-                if (!unsafeFast && !source.unsafeFast && view != null && view.status in ['SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP','WRITABLE_SOURCE','UNSUPPORTED_PLATFORM','NATIVE_LINK_ERROR'])
-                    throw new JobProblem(422,view.status,'A selected source failed the source-safety checks.')
-                unsafeFast = unsafeFast || source.unsafeFast
+                Set<String> unsafeBypass = Set.of('WRITABLE_SOURCE','WRITABLE_SUBMOUNT','SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP')
+                boolean effectiveUnsafe = unsafeFast || source.unsafeFast
+                if (view == null || (view.status != 'AVAILABLE' && !(effectiveUnsafe && unsafeBypass.contains(view.status))))
+                    throw new JobProblem(422,view?.status ?: 'INVALID_SOURCE',effectiveUnsafe ? 'The selected source is unavailable even in unsafe fast mode.' : 'A selected source failed the source-safety checks.')
+                unsafeFast = effectiveUnsafe
                 if (unsafeFast) source.unsafeFast = true
                 definitions.add(source)
             }

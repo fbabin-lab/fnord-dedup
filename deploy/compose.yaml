@@ -13,7 +13,7 @@ services:
     networks: [database]
     healthcheck:
       test: [CMD-SHELL, 'pg_isready -U fnord -d fnord']
-      interval: 5s
+      interval: 10s
       timeout: 3s
       retries: 20
     restart: unless-stopped

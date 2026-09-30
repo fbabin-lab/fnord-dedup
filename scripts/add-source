@@ -339,4 +339,102 @@ def atomic_write(path: Path, text: str, mode: int | None = None) -> None:
         if mode is None and path.exists():
             mode = path.stat().st_mode & 0o777
         if mode is not None:
-   
+            os.chmod(temp_name, mode)
+        os.replace(temp_name, path)
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Register a host directory as a read-only Fnord Dedup scan source."
+    )
+    parser.add_argument("host_directory", help="existing absolute host directory to mount read-only")
+    parser.add_argument("key", nargs="?", help="source key (default: derived from directory basename)")
+    parser.add_argument("label", nargs="?", help="display label (default: derived from key)")
+    parser.add_argument("--dry-run", action="store_true", help="validate and show planned changes without writing files")
+    parser.add_argument("--repo", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    script_repo = Path(__file__).resolve().parent.parent
+    repo = (args.repo or script_repo).resolve()
+    deploy = repo / "deploy"
+    if not (repo / "scripts" / "fnord").exists():
+        fail(f"{repo} does not look like a fnord-dedup checkout")
+
+    host = Path(args.host_directory)
+    if not host.is_absolute():
+        fail("host directory must be an absolute path")
+    host = Path(os.path.abspath(os.fspath(host)))
+    if not host.is_dir():
+        fail(f"host directory does not exist or is not a directory: {host}")
+    if not os.access(host, os.R_OK | os.X_OK):
+        fail(f"current host user cannot inspect directory: {host}")
+
+    key = args.key or default_key(host)
+    if not KEY_RE.fullmatch(key):
+        fail("key must match [a-z0-9][a-z0-9_-]{0,63}")
+    label = args.label or default_label(key)
+    if not (1 <= len(label) <= 200):
+        fail("label must contain 1 to 200 characters")
+
+    token = env_token(key)
+    source_var = f"FNORD_SOURCE_{token}"
+    export_var = f"FNORD_HOST_EXPORT_{token}"
+    container_path = f"/sources/{key}"
+
+    env_path = deploy / ".env"
+    compose_path = deploy / "compose.sources.yaml"
+    app_path = deploy / "application.yml"
+    if not env_path.exists():
+        fail("deploy/.env is missing; copy deploy/.env.example to deploy/.env or run the normal setup first")
+
+    env_text = env_path.read_text(encoding="utf-8")
+    existing_env = parse_env(env_text)
+    for name, value in existing_env.items():
+        if name.startswith("FNORD_SOURCE_") and name != source_var and value == str(host):
+            fail(f"host directory is already assigned through {name}")
+    compose_text = compose_path.read_text(encoding="utf-8") if compose_path.exists() else create_compose()
+    app_text = app_path.read_text(encoding="utf-8") if app_path.exists() else ""
+
+    new_env, env_changed = update_env(env_text, source_var, str(host))
+    new_compose, compose_changed = update_compose(compose_text, key, source_var, export_var, str(host))
+    new_app, app_changed, app_existing = update_application(app_text, key, label, container_path, export_var)
+
+    changed = env_changed or compose_changed or app_changed
+    if args.dry_run:
+        print(f"Source key:       {key}")
+        print(f"Host directory:   {host}")
+        print(f"Container path:   {container_path}")
+        print(f"Environment var:  {source_var}")
+        print("Would update:" if changed else "No changes required:")
+        for path, flag in [(env_path, env_changed), (compose_path, compose_changed), (app_path, app_changed)]:
+            print(f"  {'UPDATE' if flag else 'unchanged':9} {path.relative_to(repo)}")
+        return 0
+
+    if not changed:
+        print(f"Source {key!r} is already configured for {host}.")
+        return 0
+
+    # Compute every candidate before replacing any file. Each individual replacement is atomic.
+    atomic_write(env_path, new_env)
+    atomic_write(compose_path, new_compose)
+    atomic_write(app_path, new_app)
+
+    verb = "Updated" if app_existing else "Added"
+    print(f"{verb} source {key!r}: {host} -> {container_path} (read-only)")
+    print("Configuration files updated:")
+    print("  deploy/.env")
+    print("  deploy/compose.sources.yaml")
+    print("  deploy/application.yml")
+    print("Next run:")
+    print("  ./scripts/preflight")
+    print("  ./scripts/fnord up -d --force-recreate backend")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

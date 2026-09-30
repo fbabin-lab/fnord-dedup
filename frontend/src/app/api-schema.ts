@@ -840,6 +840,8 @@ export interface components {
              * @default false
              */
             includeSignatureCandidates: boolean;
+            /** @default false */
+            unsafeFast?: boolean;
             /**
              * @default false
              * @constant
@@ -933,6 +935,7 @@ export interface components {
             latestJob: components["schemas"]["Job"];
             activeHashJobs: components["schemas"]["Job"][];
             includeSignatureCandidates?: boolean;
+            unsafeFast?: boolean;
             signatureCatalogRevision?: string;
             signatureRunId?: string | null;
         };

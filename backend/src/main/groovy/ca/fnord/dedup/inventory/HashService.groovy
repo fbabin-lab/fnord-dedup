@@ -73,10 +73,11 @@ class HashService {
             EXISTS(SELECT 1 FROM observation_validation v WHERE v.entry_id=e.id) AS unstable,
             EXISTS(SELECT 1 FROM candidate_size cs WHERE cs.scan_id=e.scan_id AND cs.size_bytes=e.size_bytes) AS candidate,
             EXISTS(SELECT 1 FROM work_item w JOIN job j ON j.id=w.job_id WHERE w.entry_id=e.id AND w.state IN ('READY','LEASED')
-                AND j.state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED')) AS pending
+                AND j.state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED')) AS pending,
+            EXISTS(SELECT 1 FROM work_item w WHERE w.entry_id=e.id AND w.kind='HASH' AND w.state='ERROR') AS failed
             FROM scan_entry e JOIN scan s ON s.id=e.scan_id WHERE e.id=?''',entryId)
         String result = state.entry_type!='REGULAR' || state.discovery_status!='OBSERVED' ? 'INELIGIBLE' : state.evidence_block_code!=null || state.unstable==Boolean.TRUE || accepted?.active==Boolean.FALSE ? 'STALE' :
-            accepted?.active==Boolean.TRUE ? 'ACCEPTED' : state.pending==Boolean.TRUE ? 'PENDING' : latest!=null ? 'FAILED' :
+            accepted?.active==Boolean.TRUE ? 'ACCEPTED' : state.pending==Boolean.TRUE ? 'PENDING' : state.failed==Boolean.TRUE || latest!=null ? 'FAILED' :
             state.candidates_frozen_at!=null && state.inventory_only!='true' && state.candidate!=Boolean.TRUE ? 'NOT_REQUESTED_UNIQUE_SIZE' : 'NOT_REQUESTED'
         [status:result,pending:state.pending,accepted:accepted==null ? null : attempt(store,accepted),latestAttempt:latest==null ? null : attempt(store,latest),invalidationCode:state.evidence_block_code ?: accepted?.invalidation_code]
     }

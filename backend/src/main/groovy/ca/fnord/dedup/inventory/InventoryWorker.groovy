@@ -97,6 +97,9 @@ class InventoryWorker implements SmartLifecycle {
         true
     }
     private void prepare(WorkClaim c) {
+        Map scanRow = store.one('SELECT options::text AS options FROM scan WHERE id=?',c.scanId)
+        boolean unsafeFast = scanRow != null && store.parse((String)scanRow.options).unsafeFast == Boolean.TRUE
+        if (unsafeFast) return
         sources.refresh()
         // Capture all available root identities before starting any subtree. The set is bounded to 100.
         for (Map row : store.jdbc.queryForList('SELECT source_id FROM scan_source WHERE scan_id=?',c.scanId)) {
@@ -106,11 +109,8 @@ class InventoryWorker implements SmartLifecycle {
             if (view.status in ['SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP','WRITABLE_SOURCE','UNSUPPORTED_PLATFORM','NATIVE_LINK_ERROR','DISABLED'])
                 throw new JobProblem(409,view.status,'A selected source failed source-safety validation.')
             if (view.status == 'AVAILABLE') {
-                SourceDefinition source = sources.definition(sourceId)
-                if (!source.unsafeFast) {
-                    WorkClaim rootClaim = new WorkClaim(id:c.id,jobId:c.jobId,scanId:c.scanId,sourceId:sourceId,owner:c.owner,schedulerToken:c.schedulerToken,token:c.token)
-                    store.acceptRoot(rootClaim,sources.identity(sourceId))
-                }
+                WorkClaim rootClaim = new WorkClaim(id:c.id,jobId:c.jobId,scanId:c.scanId,sourceId:sourceId,owner:c.owner,schedulerToken:c.schedulerToken,token:c.token)
+                store.acceptRoot(rootClaim,sources.identity(sourceId))
             }
         }
     }

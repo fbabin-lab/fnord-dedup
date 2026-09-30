@@ -282,12 +282,12 @@ class InventoryStore {
             if (counters.entries > 0L) {
                 jdbc.update('''UPDATE job SET discovered_entries=discovered_entries+?,discovered_files=discovered_files+?,
                     discovered_directories=discovered_directories+?,discovered_bytes=discovered_bytes+?,skipped_entries=skipped_entries+?,
-                    checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?''',
-                    counters.entries,counters.files,counters.directories,counters.bytes,counters.skipped,c.jobId)
+                    pending_work=pending_work+?,checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?''',
+                    counters.entries,counters.files,counters.directories,counters.bytes,counters.skipped,counters.childWork,c.jobId)
             } else {
                 jdbc.update('UPDATE job SET checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?',c.jobId)
             }
-            jdbc.update('UPDATE work_item SET checkpoint_at=clock_timestamp() WHERE id=?',c.id)
+            jdbc.update('UPDATE work_item SET unresolved_children=unresolved_children+?,checkpoint_at=clock_timestamp() WHERE id=?',counters.childWork,c.id)
             fence(c)
             stable
         }
@@ -327,7 +327,7 @@ class InventoryStore {
             if (m?.isRegular() && m.size >= 0L) counters.bytes = counters.bytes.add(new BigDecimal(m.size))
             if (e.excluded) counters.skipped++
             if (e.type() == 'DIRECTORY' && !e.excluded && e.errorCode == null && locationId != c.locationId) {
-                if (addWork(c.jobId,locationId)) jdbc.update('UPDATE work_item SET unresolved_children=unresolved_children+1 WHERE id=?',c.id)
+                if (insertDirectoryWork(c.jobId,locationId)) counters.childWork++
             }
         }
         if (e.errorCode != null) error(c,locationId,e.errorCode,e.errorDetail ?: 'Metadata could not be read.')
@@ -340,13 +340,17 @@ class InventoryStore {
         long files
         long directories
         long skipped
+        long childWork
         BigDecimal bytes = BigDecimal.ZERO
     }
 
+    private boolean insertDirectoryWork(UUID jobId, UUID locationId) {
+        jdbc.update("INSERT INTO work_item(id,job_id,location_id,kind) VALUES (?,?,?,'DIRECTORY') ON CONFLICT DO NOTHING",UUID.randomUUID(),jobId,locationId) > 0
+    }
     boolean addWork(UUID jobId, UUID locationId) {
-        int count = jdbc.update("INSERT INTO work_item(id,job_id,location_id,kind) VALUES (?,?,?,'DIRECTORY') ON CONFLICT DO NOTHING",UUID.randomUUID(),jobId,locationId)
-        if (count > 0) jdbc.update('UPDATE job SET pending_work=pending_work+1 WHERE id=?',jobId)
-        count > 0
+        boolean added = insertDirectoryWork(jobId,locationId)
+        if (added) jdbc.update('UPDATE job SET pending_work=pending_work+1 WHERE id=?',jobId)
+        added
     }
     private void error(WorkClaim c, UUID location, String code, String detail) {
         int count = jdbc.update('INSERT INTO job_error(job_id,location_id,code,detail) VALUES (?,?,?,?) ON CONFLICT DO NOTHING',c.jobId,location,code,detail)

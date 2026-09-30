@@ -146,6 +146,36 @@ class InventoryIntegrationTest {
         assertEquals(first,create('repeat')) // Replay remains available at capacity.
     }
 
+    @Test void directoryBatchAggregatesPendingAndUnresolvedCountersWithoutReplayInflation() {
+        int children = 24
+        children.times { Files.createDirectory(fixture.resolve("d${it}")) }
+        def created = create()
+        UUID owner = UUID.randomUUID()
+        long epoch = store.acquire(owner)
+        WorkClaim claim = store.claim(owner,epoch)
+        List<InventoryEntry> entries = new ArrayList<>()
+        try (def root = sources.openValidated(sources.definition(sourceId))) {
+            store.acceptRoot(claim,root.identity())
+            entries.add(new InventoryEntry(path:new byte[0],name:new byte[0],metadata:root.identity()))
+            children.times {
+                byte[] name = "d${it}".bytes
+                entries.add(new InventoryEntry(parentId:claim.locationId,path:name,name:name,metadata:root.metadata(name)))
+            }
+        }
+
+        store.batch(claim,entries)
+        assertEquals(children + 1,jdbc.queryForObject('SELECT count(*) FROM work_item WHERE job_id=?',Integer,claim.jobId))
+        assertEquals(children + 1,jdbc.queryForObject('SELECT pending_work FROM job WHERE id=?',Integer,claim.jobId))
+        assertEquals(children,jdbc.queryForObject('SELECT unresolved_children FROM work_item WHERE id=?',Integer,claim.id))
+        assertEquals(children + 1,jdbc.queryForObject('SELECT discovered_entries FROM job WHERE id=?',Integer,claim.jobId))
+
+        store.batch(claim,entries)
+        assertEquals(children + 1,jdbc.queryForObject('SELECT count(*) FROM work_item WHERE job_id=?',Integer,claim.jobId))
+        assertEquals(children + 1,jdbc.queryForObject('SELECT pending_work FROM job WHERE id=?',Integer,claim.jobId))
+        assertEquals(children,jdbc.queryForObject('SELECT unresolved_children FROM work_item WHERE id=?',Integer,claim.id))
+        assertEquals(children + 1,jdbc.queryForObject('SELECT discovered_entries FROM job WHERE id=?',Integer,claim.jobId))
+    }
+
     @Test void pauseAfterCommittedBatchThenReplayKeepsCountersAndRows() {
         620.times { Files.writeString(fixture.resolve("f${it}"),'x') }
         def created = create()

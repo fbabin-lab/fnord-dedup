@@ -135,7 +135,6 @@ class InventoryService {
                     if (!(state in ['PAUSED','INTERRUPTED']) || ((Number)row.version).longValue() != expected) conflict()
                     if (requestedUnsafe) {
                         store.jdbc.update("UPDATE scan SET options=jsonb_set(options,'{unsafeFast}','true'::jsonb,true),query_revision=query_revision+1 WHERE id=?",row.scan_id)
-                        store.jdbc.update("UPDATE scan_source SET snapshot=jsonb_set(snapshot,'{unsafeFast}','true'::jsonb,true) WHERE scan_id=?",row.scan_id)
                     }
                     next = 'QUEUED'
                     break

@@ -27,7 +27,8 @@ class InventoryController {
     @GetMapping('/jobs/{id}') Map job(@PathVariable('id') UUID id) { inventory.job(id) }
     @PostMapping('/jobs/{id}/{action:pause|resume|cancel}') Map control(@PathVariable('id') UUID id,@PathVariable('action') String action,
         @RequestBody(required=false) Map<String,Object> body,Authentication auth,HttpServletRequest request) {
-        inventory.control(id,action,auth.name,(String)request.getAttribute('correlationId'),body ?: Map.of())
+        Map<String,Object> options = body == null ? new LinkedHashMap<String,Object>() : body
+        inventory.control(id,action,auth.name,(String)request.getAttribute('correlationId'),options)
     }
     @GetMapping('/jobs/{id}/errors') Map errors(@PathVariable('id') UUID id,@RequestParam(value='cursor',required=false) String cursor,@RequestParam(value='limit',defaultValue='100') int limit) { inventory.errors(id,cursor,limit) }
     @GetMapping('/scans/{scanId}/directories/{locationId}/children') Map children(@PathVariable('scanId') UUID scanId,@PathVariable('locationId') UUID locationId,@RequestParam(value='cursor',required=false) String cursor,@RequestParam(value='limit',defaultValue='100') int limit) { inventory.children(scanId,locationId,cursor,limit) }

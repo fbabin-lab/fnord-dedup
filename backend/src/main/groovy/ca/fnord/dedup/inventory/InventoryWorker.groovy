@@ -106,8 +106,11 @@ class InventoryWorker implements SmartLifecycle {
             if (view.status in ['SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP','WRITABLE_SOURCE','UNSUPPORTED_PLATFORM','NATIVE_LINK_ERROR','DISABLED'])
                 throw new JobProblem(409,view.status,'A selected source failed source-safety validation.')
             if (view.status == 'AVAILABLE') {
-                WorkClaim rootClaim = new WorkClaim(id:c.id,jobId:c.jobId,scanId:c.scanId,sourceId:sourceId,owner:c.owner,schedulerToken:c.schedulerToken,token:c.token)
-                store.acceptRoot(rootClaim,sources.identity(sourceId))
+                SourceDefinition source = sources.definition(sourceId)
+                if (!source.unsafeFast) {
+                    WorkClaim rootClaim = new WorkClaim(id:c.id,jobId:c.jobId,scanId:c.scanId,sourceId:sourceId,owner:c.owner,schedulerToken:c.schedulerToken,token:c.token)
+                    store.acceptRoot(rootClaim,sources.identity(sourceId))
+                }
             }
         }
     }
@@ -125,13 +128,13 @@ class InventoryWorker implements SmartLifecycle {
         SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
         List<InventoryEntry> batch = new ArrayList<>()
         try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {
-            store.acceptRoot(c,root.identity())
-            MountTable mounts = MountTable.current()
+            if (!source.unsafeFast) store.acceptRoot(c,root.identity())
+            MountTable mounts = source.unsafeFast ? null : MountTable.current()
             InventoryEntry directory = observe(root,c.path,null,new byte[0],source,mounts)
-            Map original = store.one('SELECT fingerprint @> ?::jsonb AS matches FROM scan_entry WHERE scan_id=? AND location_id=?',
+            Map original = source.unsafeFast ? null : store.one('SELECT fingerprint @> ?::jsonb AS matches FROM scan_entry WHERE scan_id=? AND location_id=?',
                 store.json(directory.metadata == null ? [type:'DIRECTORY'] : InventoryEntry.identity(directory.metadata) + ([type:'DIRECTORY'] as Map<String,Object>)),c.scanId,c.locationId)
             store.batch(c,List.of(directory))
-            if (directory.errorCode != null || directory.type() != 'DIRECTORY' || (original != null && original.matches != Boolean.TRUE)) {
+            if (directory.errorCode != null || directory.type() != 'DIRECTORY' || (!source.unsafeFast && original != null && original.matches != Boolean.TRUE)) {
                 throw new SourceAccessException(directory.errorCode ?: 'CHANGED',directory.errorDetail ?: 'The directory no longer refers to the observed object.')
             }
             controlBoundary(c)
@@ -145,13 +148,13 @@ class InventoryWorker implements SmartLifecycle {
                     if (batch.size() >= 500 || System.nanoTime()-lastCommit >= 1_000_000_000L) {
                         store.batch(c,batch); batch.clear(); lastCommit = System.nanoTime()
                         controlBoundary(c)
-                        validateBinding(c,source,root.identity())
+                        if (!source.unsafeFast) validateBinding(c,source,root.identity())
                     }
                 }
             }
             if (!batch.isEmpty()) { store.batch(c,batch); batch.clear() }
             controlBoundary(c)
-            validateBinding(c,source,root.identity())
+            if (!source.unsafeFast) validateBinding(c,source,root.identity())
         } catch (InventoryStop ignored) {
             // try-with-resources closes cursor/root BEFORE durable stop acknowledgement.
             store.checkpoint(c)
@@ -172,12 +175,17 @@ class InventoryWorker implements SmartLifecycle {
         try {
             entry.metadata = root.metadata(path)
             if (entry.metadata.isRegular() && entry.metadata.size < 0L) throw new SourceAccessException('UNSUPPORTED_SIZE','The file size exceeds the supported signed 64-bit range.')
-            try { entry.filesystem = mounts.byId(entry.metadata.mountId).filesystem }
-            catch (SourceAccessException ignored) { /* Missing optional capability remains null. */ }
-            entry.excluded = !source.crossMounts && entry.metadata.mountId != root.identity().mountId
-            if (entry.metadata.isSymlink() && !entry.excluded) {
-                entry.linkTarget = root.readLink(path)
-                if (!entry.metadata.sameFingerprint(root.metadata(path))) throw new SourceAccessException('CHANGED','The symbolic link changed while reading its metadata.')
+            if (source.unsafeFast) {
+                entry.excluded = false
+                if (entry.metadata.isSymlink()) entry.linkTarget = root.readLink(path)
+            } else {
+                try { entry.filesystem = mounts.byId(entry.metadata.mountId).filesystem }
+                catch (SourceAccessException ignored) { /* Missing optional capability remains null. */ }
+                entry.excluded = !source.crossMounts && entry.metadata.mountId != root.identity().mountId
+                if (entry.metadata.isSymlink() && !entry.excluded) {
+                    entry.linkTarget = root.readLink(path)
+                    if (!entry.metadata.sameFingerprint(root.metadata(path))) throw new SourceAccessException('CHANGED','The symbolic link changed while reading its metadata.')
+                }
             }
         } catch (SourceAccessException e) { entry.errorCode = e.code; entry.errorDetail = e.message }
         entry

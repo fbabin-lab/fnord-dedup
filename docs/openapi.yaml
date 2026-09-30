@@ -1804,6 +1804,7 @@ components:
       - containerPath
       - enabled
       - crossMounts
+      - unsafeFast
       - status
       - detail
       - excludedMountCount
@@ -1823,6 +1824,8 @@ components:
         enabled:
           type: boolean
         crossMounts:
+          type: boolean
+        unsafeFast:
           type: boolean
         status:
           type: string

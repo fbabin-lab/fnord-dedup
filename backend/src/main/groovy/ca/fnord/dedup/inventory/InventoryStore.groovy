@@ -281,11 +281,13 @@ class InventoryStore {
             for (InventoryEntry entry : entries) stable &= persist(c,entry,counters)
             if (counters.entries > 0L) {
                 jdbc.update('''UPDATE job SET discovered_entries=discovered_entries+?,discovered_files=discovered_files+?,
-                    discovered_directories=discovered_directories+?,discovered_bytes=discovered_bytes+?,skipped_entries=skipped_entries+?
-                    WHERE id=?''',counters.entries,counters.files,counters.directories,counters.bytes,counters.skipped,c.jobId)
+                    discovered_directories=discovered_directories+?,discovered_bytes=discovered_bytes+?,skipped_entries=skipped_entries+?,
+                    checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?''',
+                    counters.entries,counters.files,counters.directories,counters.bytes,counters.skipped,c.jobId)
+            } else {
+                jdbc.update('UPDATE job SET checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?',c.jobId)
             }
             jdbc.update('UPDATE work_item SET checkpoint_at=clock_timestamp() WHERE id=?',c.id)
-            jdbc.update('UPDATE job SET checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?',c.jobId)
             fence(c)
             stable
         }

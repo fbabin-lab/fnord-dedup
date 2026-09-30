@@ -20,7 +20,7 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
         <fieldset><legend>Configured sources</legend>
           @for (source of sources()?.sources ?? []; track source.id) {
             <label class="source-choice"><input type="checkbox" [checked]="selected().has(source.id)" [disabled]="!canSelectSource(source.status) || busy()" (change)="toggle(source.id, $event)">
-              <span>{{ source.label }} <span class="small muted">{{ source.status }}</span></span></label>
+              <span>{{ source.label }} <span class="small muted">{{ source.status }}{{ source.unsafeFast ? ' · UNSAFE DEFAULT' : '' }}</span></span></label>
           } @empty { <p>No sources configured. <a routerLink="/sources">Review source setup</a>.</p> }
         </fieldset>
         <label class="source-choice"><input type="checkbox" [formControl]="includeSignatures" (change)="resetKey()"> Include known-signature size candidates</label><p class="small muted">Off by default. Enabling this reads additional unique-size files matching enabled signature sizes in the catalog captured when the scan starts.</p>
@@ -62,14 +62,18 @@ export class Scans implements OnInit {
   }
   unsafeModeChanged(): void {
     if (!this.unsafeFast.value) {
-      const allowed = new Set((this.sources()?.sources ?? []).filter(source => source.status === 'AVAILABLE').map(source => source.id));
+      const allowed = new Set((this.sources()?.sources ?? []).filter(source => source.status === 'AVAILABLE' && !source.unsafeFast).map(source => source.id));
       this.selected.set(new Set([...this.selected()].filter(id => allowed.has(id))));
     }
     this.resetKey();
   }
   toggle(id: string, event: Event): void {
     const selected = new Set(this.selected());
-    if ((event.target as HTMLInputElement).checked) selected.add(id); else selected.delete(id);
+    const checked = (event.target as HTMLInputElement).checked;
+    if (checked) {
+      selected.add(id);
+      if (this.sources()?.sources.find(source => source.id === id)?.unsafeFast) this.unsafeFast.setValue(true);
+    } else selected.delete(id);
     this.selected.set(selected); this.resetKey();
   }
   async load(cursor?: string | null): Promise<void> {

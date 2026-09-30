@@ -171,6 +171,17 @@ class InventoryIntegrationTest {
         assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM work_item',Integer))
     }
 
+    @Test void pausedScanCanBePromotedToUnsafeFastOnResume() {
+        def created = create()
+        UUID jobId = UUID.fromString(created.jobId)
+        assertEquals('PAUSED',service.control(jobId,'pause','operator',correlation).state)
+        assertEquals('QUEUED',service.control(jobId,'resume','operator',correlation,[unsafeFast:true]).state)
+        Map scan = service.scan(UUID.fromString(created.scanId))
+        assertTrue(scan.unsafeFast as boolean)
+        Map snapshot = store.parse(jdbc.queryForObject('SELECT snapshot::text FROM scan_source WHERE scan_id=?',String,UUID.fromString(created.scanId)))
+        assertEquals(Boolean.TRUE,snapshot.unsafeFast)
+    }
+
     @Test void recoveryFencesOldWorkersAndRetainsFirstObservationOnConflict() {
         Files.writeString(fixture.resolve('file'),'hello')
         def created = create()

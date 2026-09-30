@@ -395,7 +395,7 @@ class InventoryIntegrationTest {
         @Override String getRevision() { testRevision }
         @Override SourceDefinition definition(UUID id) { definitions[id] }
         @Override FileMetadata identity(UUID id) { identities[id] }
-        @Override List<SourceView> list() { definitions.values().collect { s -> new SourceView(s.id,s.sourceInstanceId,s.key,s.label,s.containerPath,true,false,statusOverride ?: 'AVAILABLE','Generated test fixture',0) } }
+        @Override List<SourceView> list() { definitions.values().collect { s -> new SourceView(s.id,s.sourceInstanceId,s.key,s.label,s.containerPath,true,false,s.unsafeFast,statusOverride ?: 'AVAILABLE','Generated test fixture',0) } }
         @Override ReadOnlyFileAccess.Root openValidated(SourceDefinition source) {
             if (failRoot) throw new SourceAccessException('UNAVAILABLE','Generated unavailable root.')
             def delegate = nativeAccess.openRoot(source)

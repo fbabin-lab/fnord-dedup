@@ -57,7 +57,7 @@ Individual sizes, aggregate bytes, counters, large sequence IDs and inode/mount 
 | Method | Route | Behavior |
 |---|---|---|
 | POST | `/hash-jobs` | `scanId`, 1–500 distinct `observationIds` or one `selectionId`, optional boolean `forceRehash` (false). Requires frozen inventory and eligible regular observations from that scan. Same idempotency/admission/CSRF rules as scan creation. Returns 202 with job/scan IDs. |
-| GET | `/observations/{id}/hash-attempts` | Paged immutable finished attempts, with one potentially in-progress attempt. Reasons, byte count, timestamps, available pre/post fingerprints, errors and accepted digest. |
+| GET | `/observations/{id}/hash-attempts` | Paged immutable completed attempts only. In-progress, interrupted, cancelled, or read-failed hashing creates no attempt row. Completed rows include reasons, final byte count, timestamps, available pre/post fingerprints, outcome and accepted digest when valid. |
 | GET | `/scans/{id}/duplicate-groups` | Current published analysis, or a historical published `analysisId`; paged groups. Pin `analysisId` while paging. Revision mismatch returns 409. Unpublished builds are unavailable. |
 | GET | `/duplicate-groups/{id}` | Group plus paged members with exact captured attempt IDs and checksum timestamps. |
 
@@ -69,7 +69,7 @@ Analysis publication is atomic. `CURRENT` / `NEEDS_REBUILD` compares captured an
 
 Path bytes and confirmed-object bytes are separate. Hard links are recognized only with consistent supported filesystem/device/inode/mount identities and link metadata. Repeated mount views are `ALIASED_MOUNTS_UNCERTAIN`; unsupported/contradictory identity is `IDENTITY_UNKNOWN`. Both have null object counts/estimates. `physicalSavingsBytes` is always null. Theoretical duplicate-copy bytes are not a promise of reclaimed disk space.
 
-Jobs expose candidate files/bytes, fresh hashes, reused files, physical bytes read and useful completed bytes as decimal strings. Physical bytes include committed discarded/retried chunks; an abrupt process loss may leave the last uncommitted chunk unrecorded. Hash controls are checked at 1 MiB boundaries; unfinished streams restart at zero. Source GETs remain database-only.
+Jobs expose candidate files/bytes, fresh hashes, reused files and completed hashed bytes as decimal strings. Incomplete reads are not persisted as hash progress and do not contribute to completed-byte counters; they restart from byte zero. During a long hash, local shutdown is checked at each read boundary and durable pause/cancel state is checked no more often than every ten seconds plus once before final publication. Source GETs remain database-only.
 
 
 ## Explorer and location annotations

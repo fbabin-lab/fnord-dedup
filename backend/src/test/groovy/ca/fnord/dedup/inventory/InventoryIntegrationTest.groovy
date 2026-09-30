@@ -77,6 +77,16 @@ class InventoryIntegrationTest {
     }
     Map job(Map created) { service.job(UUID.fromString(created.jobId)) }
 
+    @Test void idleWorkerDoesNotAcquireSchedulerLeaseOrWriteHeartbeatState() {
+        Map before = jdbc.queryForMap('SELECT owner,token,expires_at FROM scheduler_lock WHERE id=1')
+        def worker = new InventoryWorker(store,sources)
+        assertFalse(worker.runOnce())
+        Map after = jdbc.queryForMap('SELECT owner,token,expires_at FROM scheduler_lock WHERE id=1')
+        assertNull(after.owner)
+        assertEquals(before.token,after.token)
+        assertEquals(before.expires_at,after.expires_at)
+    }
+
     @Test void nativeRecursiveInventoryHasExactMetadataAndNeverOpensBodies() {
         Files.createDirectories(fixture.resolve('nested/empty'))
         ['.hidden','zero','space name','line\nfeed','café','cafe\u0301','<img src=x onerror=alert(1)>'].each { Files.writeString(fixture.resolve(it),it == 'zero' ? '' : 'hello') }

@@ -58,8 +58,8 @@ export function averageRate(job: Job): string | null {
           <div><strong>{{ value.latestJob.hashedFiles }}</strong><span>Completed fresh hashes</span></div>
           <div><strong>{{ value.latestJob.reusedFiles }}</strong><span>Accepted hashes reused</span></div>
           <div><strong>{{ value.latestJob.candidateBytes }}</strong><span>Candidate bytes</span></div></div>
-        <p>{{ value.latestJob.physicalBytesRead }} physical bytes read; {{ value.latestJob.usefulBytesHashed }} useful completed bytes.
-          Incomplete reads restart from byte zero. After an abrupt process loss, physical reads since the last committed chunk may be unrecorded.</p>
+        <p>{{ value.latestJob.usefulBytesHashed }} bytes successfully hashed.
+          Incomplete reads are not recorded as hash progress and restart from byte zero.</p>
         @if (value.latestJob.id !== value.job.id) {
           <p>Latest follow-up job · {{ value.latestJob.id }} · {{ value.latestJob.errorCount }} errors</p>
         }

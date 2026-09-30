@@ -50,8 +50,9 @@ class InventoryService {
                 SourceDefinition source = sources.definition(id)
                 SourceView view = sources.list().find { SourceView s -> s.id == id }
                 if (source == null || !source.enabled) throw new JobProblem(422,'INVALID_SOURCE','A selected source is unknown or disabled.')
-                if (!unsafeFast && view != null && view.status in ['SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP','WRITABLE_SOURCE','UNSUPPORTED_PLATFORM','NATIVE_LINK_ERROR'])
+                if (!unsafeFast && !source.unsafeFast && view != null && view.status in ['SOURCE_OVERLAP','APPLICATION_STORAGE_OVERLAP','WRITABLE_SOURCE','UNSUPPORTED_PLATFORM','NATIVE_LINK_ERROR'])
                     throw new JobProblem(422,view.status,'A selected source failed the source-safety checks.')
+                unsafeFast = unsafeFast || source.unsafeFast
                 if (unsafeFast) source.unsafeFast = true
                 definitions.add(source)
             }

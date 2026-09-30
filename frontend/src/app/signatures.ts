@@ -91,7 +91,7 @@ export class Signatures implements OnInit,OnDestroy {
   private listGeneration=0; private editGeneration=0; private timer?:ReturnType<typeof setInterval>; private applyKey=crypto.randomUUID(); private exportRequest?:{payload:string;key:string};
   // A transport retry keeps its key; only a known terminal job permits a new intent.
   private hashRequest?:{scanId:string;observationId:string;key:string;jobId?:string};
-  ngOnInit():void { void this.initialize(); this.timer=setInterval(()=> { if(['QUEUED','BUILDING'].includes(this.artifact()?.state ?? '')) void this.refreshArtifact(); },2000); }
+  ngOnInit():void { void this.initialize(); this.timer=setInterval(()=> { if(['QUEUED','BUILDING'].includes(this.artifact()?.state ?? '')) void this.refreshArtifact(); },10000); }
   ngOnDestroy():void { this.filenameChanges.unsubscribe(); if(this.timer) clearInterval(this.timer); this.editGeneration++; this.listGeneration++; }
   async initialize():Promise<void> { await this.load();
     try { this.limits.set(await this.api.signatureLimits()); const q=this.route.snapshot.queryParamMap;

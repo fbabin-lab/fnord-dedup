@@ -8,3 +8,4 @@ fnord:
       host-export-prefix: ${FNORD_HOST_EXPORT_ARCHIVE}
       enabled: true
       cross-mounts: false
+      unsafe-fast: false

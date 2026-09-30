@@ -16,6 +16,7 @@ import java.util.concurrent.*
 @ConditionalOnProperty(prefix='fnord.inventory',name='enabled',havingValue='true',matchIfMissing=true)
 class InventoryWorker implements SmartLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(InventoryWorker)
+    private static final long IDLE_POLL_SECONDS = 10L
     final InventoryStore store
     final SourceRegistry sources
     final UUID owner = UUID.randomUUID()
@@ -34,8 +35,12 @@ class InventoryWorker implements SmartLifecycle {
         running = true; stopping = false
         executor = Executors.newSingleThreadScheduledExecutor({ Runnable r -> Thread.ofPlatform().daemon().name('inventory-worker').unstarted(r) } as ThreadFactory)
         heartbeats = Executors.newSingleThreadScheduledExecutor({ Runnable r -> Thread.ofPlatform().daemon().name('inventory-heartbeat').unstarted(r) } as ThreadFactory)
-        executor.scheduleWithFixedDelay({ tick() } as Runnable,0L,250L,TimeUnit.MILLISECONDS)
+        scheduleNext(0L,TimeUnit.SECONDS)
         heartbeats.scheduleWithFixedDelay({ renew() } as Runnable,10L,10L,TimeUnit.SECONDS)
+    }
+    private void scheduleNext(long delay, TimeUnit unit) {
+        if (!stopping && executor != null && !executor.isShutdown())
+            executor.schedule({ tick() } as Runnable,delay,unit)
     }
     private void renew() {
         Long current = epoch
@@ -45,20 +50,37 @@ class InventoryWorker implements SmartLifecycle {
     }
     private void tick() {
         if (stopping) return
-        try { runOnce() }
+        boolean active = false
+        try { active = runOnce() }
         catch (LeaseLost ignored) { epoch = null; preparedJob = null }
         catch (Exception e) {
             // A failed/ambiguous DB commit is recovered through its lease. Never fabricate completion.
             LOG.error('Inventory iteration failed; durable work remains recoverable. Error type: {}',e.class.simpleName)
             epoch = null; preparedJob = null
+        } finally {
+            // Idle polling is deliberately capped at once per ten seconds. While an
+            // operator-requested job has durable work, continue immediately so large
+            // directory trees/exports do not incur a ten-second delay per work item.
+            if (!stopping) scheduleNext(active ? 0L : IDLE_POLL_SECONDS,TimeUnit.SECONDS)
         }
     }
     /** Also used by deterministic integration tests; production invocation is server-owned. */
-    void runOnce() {
-        if (epoch == null) epoch = store.acquire(owner)
-        if (epoch == null) return
+    boolean runOnce() {
+        if (epoch == null) {
+            if (!store.schedulerWorkPending()) return false
+            epoch = store.acquire(owner)
+        }
+        if (epoch == null) return false
         WorkClaim claim = store.claim(owner,epoch)
-        if (claim == null) { preparedJob = null; return }
+        if (claim == null) {
+            preparedJob = null
+            boolean pending = store.schedulerWorkPending()
+            if (!pending) {
+                store.release(owner,epoch)
+                epoch = null
+            }
+            return pending
+        }
         try {
             if (claim.kind == 'SELECT_CANDIDATES') { new HashPipeline(store,sources).select(claim); return }
             if (claim.kind == 'SIGNATURE_SELECT') { new SignaturePipeline(store).select(claim); return }
@@ -72,6 +94,7 @@ class InventoryWorker implements SmartLifecycle {
             if (claim.kind == 'HASH' && e.code == 'SOURCE_CONFIGURATION_CHANGED') store.invalidateScanEvidence(claim.scanId,e.code,claim)
             store.block(claim,e.code); preparedJob = null
         }
+        true
     }
     private void prepare(WorkClaim c) {
         sources.refresh()

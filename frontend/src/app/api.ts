@@ -112,8 +112,8 @@ export class Api {
   async createScan(body: ScanRequest, key: string): Promise<components['schemas']['ScanCreated']> {
     return firstValueFrom(this.http.post<components['schemas']['ScanCreated']>('/api/v1/scans', body, {headers: {'Idempotency-Key': key}}));
   }
-  async control(id: string, action: 'pause' | 'resume' | 'cancel'): Promise<Job> {
-    return firstValueFrom(this.http.post<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/${action}`, {}));
+  async control(id: string, action: 'pause' | 'resume' | 'cancel', unsafeFast = false): Promise<Job> {
+    return firstValueFrom(this.http.post<Job>(`/api/v1/jobs/${encodeURIComponent(id)}/${action}`, action === 'resume' && unsafeFast ? {unsafeFast:true} : {}));
   }
   children(scanId: string, locationId: string, cursor?: string | null): Promise<ChildrenPage> {
     return this.get(`/api/v1/scans/${encodeURIComponent(scanId)}/directories/${encodeURIComponent(locationId)}/children?limit=100` + cursorQuery(cursor));

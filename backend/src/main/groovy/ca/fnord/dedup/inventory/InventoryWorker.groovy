@@ -123,6 +123,8 @@ class InventoryWorker implements SmartLifecycle {
     private void inventory(WorkClaim c) {
         if (stopping || store.shouldStop(c)) { store.checkpoint(c); return }
         SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
+        Map scanOptions = store.parse((String)store.one('SELECT options::text AS options FROM scan WHERE id=?',c.scanId).options)
+        if (scanOptions.unsafeFast == Boolean.TRUE) source.unsafeFast = true
         List<InventoryEntry> batch = new ArrayList<>()
         try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {
             if (!source.unsafeFast) store.acceptRoot(c,root.identity())

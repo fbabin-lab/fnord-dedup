@@ -265,17 +265,6 @@ paths:
         required: true
         schema: *id001
       - $ref: '#/components/parameters/Csrf'
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                unsafeFast:
-                  type: boolean
-                  default: false
       responses:
         '200':
           description: Stored metadata / durable state
@@ -309,6 +298,17 @@ paths:
         required: true
         schema: *id001
       - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                unsafeFast:
+                  type: boolean
+                  default: false
       responses:
         '200':
           description: Stored metadata / durable state

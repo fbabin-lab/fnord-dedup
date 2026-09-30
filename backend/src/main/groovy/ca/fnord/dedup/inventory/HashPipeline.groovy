@@ -73,7 +73,9 @@ class HashPipeline {
         long bytesRead = 0L
         long nextControlCheck = System.nanoTime() + CONTROL_CHECK_NANOS
         SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
-        boolean unsafeFast = source.unsafeFast
+        Map scanOptions = store.parse((String)store.one('SELECT options::text AS options FROM scan WHERE id=?',c.scanId).options)
+        boolean unsafeFast = source.unsafeFast || scanOptions.unsafeFast == Boolean.TRUE
+        if (unsafeFast) source.unsafeFast = true
         try {
             FileMetadata expected = metadata(entry)
             try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {

@@ -125,7 +125,7 @@ Define narrow interfaces such as `ReadOnlyFileAccess`, `InventoryRepository`, `W
 
 **INV-01 — Source immutability.** No operation in the application, UI, API, startup scripts, or generated exports changes scanned source bytes, names, permissions, timestamps intentionally, links, or directory structure. The application must not mount the Docker socket, use privileged containers, or offer source filesystem write methods.
 
-**INV-02 — Read-only enforcement.** A source root is not eligible for scanning or reading unless its effective mount is verified read-only. Reject writable included submounts. Do not test read-only status by trying to create or delete a probe file in a real source root. Docker recursive read-only behavior depends on the kernel and mount configuration; the application must validate the actual container view. [R5]
+**INV-02 — Read-only enforcement.** Except for an explicitly configured `unsafeFast=true` source, a source root is not eligible for scanning or reading unless its effective mount is verified read-only. Reject writable included submounts. Do not test read-only status by trying to create or delete a probe file in a real source root. Docker recursive read-only behavior depends on the kernel and mount configuration; the application must validate the actual container view. [R5]
 
 **INV-03 — Evidence is versioned.** A checksum belongs to a specific scan observation and to the exact metadata observed around the read. A checksum computed for an earlier observation is not silently attached to a later scan.
 
@@ -151,7 +151,9 @@ Internal database records and application-owned export/scratch storage are separ
 
 Administrators add a source through Compose bind-mount configuration and backend configuration. The web UI can select an existing source but cannot create arbitrary host mounts or turn an arbitrary path into a scan root.
 
-Each configured source has a stable `sourceId` UUID, a stable `sourceInstanceId` UUID identifying the backing dataset, a short `key`, a display label, an absolute `containerPath`, optional `hostExportPrefix`, `enabled`, and a `crossMounts` flag defaulting to false. A new disk/dataset replacing an old source must use a new source instance. Do not infer permanent source identity from Linux device numbers alone.
+Each configured source has a stable `sourceId` UUID, a stable `sourceInstanceId` UUID identifying the backing dataset, a short `key`, a display label, an absolute `containerPath`, optional `hostExportPrefix`, `enabled`, a `crossMounts` flag defaulting to false, and an `unsafeFast` flag defaulting to false. A new disk/dataset replacing an old source must use a new source instance. Do not infer permanent source identity from Linux device numbers alone.
+
+`unsafeFast=true` is an explicit operator opt-out from the runtime source-safety/consistency guarantees in INV-02 and sections 4–5 for that source. It exists only as a performance/trusted-environment mode. The application still exposes no filesystem mutation methods and regular-file type gating remains before body reads, but runtime mount/read-only verification, overlap/application-storage checks, nested-mount exclusion, repeated directory/root identity checks, per-component path validation, and pre/post hash consistency checks are bypassed. Results from such a source must be labeled operationally as unsafe and must not be represented as having the normal validated evidence guarantees.
 
 Record a source-config revision and a scan-specific snapshot of configuration. A change to the binding or source identity while a job is active pauses affected work with `SOURCE_CONFIGURATION_CHANGED`. Disabling a source preserves its history and annotations. Removing a mount makes its current availability `UNAVAILABLE`, not “all files removed.”
 

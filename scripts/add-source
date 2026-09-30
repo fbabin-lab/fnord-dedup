@@ -130,4 +130,103 @@ def source_blocks(lines: list[str], sources_index: int, sources_end: int) -> lis
         first = lines[start].strip()[2:]
         candidates = [first] + [lines[j].strip() for j in range(start + 1, end)]
         for item in candidates:
-  
+            if ":" not in item or item.startswith("#"):
+                continue
+            name, value = item.split(":", 1)
+            value = value.strip().strip('"').strip("'")
+            if name in {"id", "source-instance-id", "key", "label", "container-path", "host-export-prefix"}:
+                fields[name] = value
+        blocks.append((start, end, fields))
+    return blocks
+
+
+def update_application(text: str, key: str, label: str, container_path: str, export_var: str) -> tuple[str, bool, bool]:
+    lines = split_lines(text)
+    fnord = find_yaml_key(lines, "fnord", 0)
+    created_structure = False
+    if fnord is None:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        if lines and lines[-1].strip():
+            lines.append("\n")
+        fnord = len(lines)
+        lines.extend(["fnord:\n", "  sources:\n"])
+        sources = fnord + 1
+        created_structure = True
+    else:
+        fnord_end = block_end(lines, fnord, 0)
+        sources = find_yaml_key(lines, "sources", 2, fnord + 1, fnord_end)
+        if sources is None:
+            sources = fnord + 1
+            lines.insert(sources, "  sources:\n")
+            created_structure = True
+
+    sources_end = block_end(lines, sources, 2)
+    blocks = source_blocks(lines, sources, sources_end)
+    for _, _, fields in blocks:
+        existing_key = fields.get("key")
+        existing_path = fields.get("container-path")
+        if existing_key == key:
+            if existing_path and existing_path != container_path:
+                fail(f"source key {key!r} already uses container path {existing_path!r}")
+            return "".join(lines), created_structure, True
+        if existing_key and env_token(existing_key) == env_token(key):
+            fail(f"source key {key!r} collides with existing key {existing_key!r} in environment-variable naming")
+        if existing_path == container_path:
+            fail(f"container path {container_path!r} is already used by source {existing_key!r}")
+
+    source_id = uuid.uuid4()
+    instance_id = uuid.uuid4()
+    label_yaml = label.replace("\\", "\\\\").replace('"', '\\"')
+    item = [
+        f"    - id: {source_id}\n",
+        f"      source-instance-id: {instance_id}\n",
+        f"      key: {key}\n",
+        f'      label: "{label_yaml}"\n',
+        f"      container-path: {container_path}\n",
+        f"      host-export-prefix: ${{{export_var}}}\n",
+        "      enabled: true\n",
+        "      cross-mounts: false\n",
+    ]
+    lines[sources_end:sources_end] = item
+    return "".join(lines), True, False
+
+
+def find_backend_block(lines: list[str]) -> tuple[int, int]:
+    services = find_yaml_key(lines, "services", 0)
+    if services is None:
+        fail("deploy/compose.sources.yaml has no top-level services mapping")
+    services_end = block_end(lines, services, 0)
+    backend = find_yaml_key(lines, "backend", 2, services + 1, services_end)
+    if backend is None:
+        fail("deploy/compose.sources.yaml has no services.backend mapping")
+    return backend, block_end(lines, backend, 2)
+
+
+def compose_volume_block(lines: list[str], volumes: int, volumes_end: int, target: str) -> tuple[int, int] | None:
+    starts = [i for i in range(volumes + 1, volumes_end) if lines[i].rstrip("\r\n").startswith("      - ")]
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else volumes_end
+        if any(line.strip() == f"target: {target}" for line in lines[start:end]):
+            return start, end
+    return None
+
+
+def update_compose(text: str, key: str, source_var: str, export_var: str, host_path: str) -> tuple[str, bool]:
+    if not text.strip():
+        text = "services:\n  backend:\n"
+    lines = split_lines(text)
+    backend, backend_end = find_backend_block(lines)
+    changed = False
+
+    environment = find_yaml_key(lines, "environment", 4, backend + 1, backend_end)
+    env_line = f"      {export_var}: ${{{source_var}:?Set the existing absolute host directory}}\n"
+    config_line = "      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/config/application.yml\n"
+    if environment is None:
+        environment = backend + 1
+        lines[environment:environment] = ["    environment:\n", config_line, env_line]
+        changed = True
+    else:
+        environment_end = block_end(lines, environment, 4)
+        existing_names = [lines[i].strip().split(":", 1)[0] for i in range(environment + 1, environment_end) if ":" in lines[i]]
+        if "SPRING_CONFIG_ADD

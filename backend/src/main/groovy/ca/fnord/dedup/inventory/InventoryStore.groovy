@@ -31,6 +31,34 @@ class InventoryStore {
     InventoryStore(JdbcTemplate jdbc, TransactionTemplate tx, ObjectMapper mapper) {
         this.jdbc = jdbc; this.tx = tx; this.mapper = mapper
     }
+
+    /**
+     * Read-only scheduler wake check. When this is false the worker must not
+     * acquire/renew the scheduler lease, avoiding idle WAL writes.
+     */
+    boolean schedulerWorkPending() {
+        Boolean pending = jdbc.queryForObject('''
+            SELECT EXISTS (
+                SELECT 1 FROM job
+                WHERE state IN ('QUEUED','RUNNING','PAUSE_REQUESTED','CANCEL_REQUESTED')
+            ) OR EXISTS (
+                SELECT 1 FROM signature_export
+                WHERE state IN ('QUEUED','BUILDING')
+            ) OR EXISTS (
+                SELECT 1
+                FROM scan s CROSS JOIN signature_clock c
+                WHERE c.id=1
+                  AND s.inventory_frozen_at IS NOT NULL
+                  AND (s.signature_scheduled_revision<c.revision OR s.signature_scheduled_evidence<s.evidence_revision)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM job j
+                      WHERE j.scan_id=s.id
+                        AND j.state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED')
+                  )
+            )
+        ''', Boolean)
+        pending == Boolean.TRUE
+    }
     String json(Object value) { mapper.writeValueAsString(value) }
     Map<String,Object> parse(String value) { (Map<String,Object>)mapper.readValue(value, Map) }
     Map<String,Object> one(String sql, Object... args) {

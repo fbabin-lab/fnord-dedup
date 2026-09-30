@@ -812,6 +812,7 @@ export interface components {
             containerPath: string;
             enabled: boolean;
             crossMounts: boolean;
+            unsafeFast: boolean;
             status: string;
             detail: string;
             excludedMountCount: number;

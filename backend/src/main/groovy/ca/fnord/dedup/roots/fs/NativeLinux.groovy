@@ -41,7 +41,7 @@ final class NativeLinux {
         how.setLong(16, resolve | NO_MAGICLINKS | NO_SYMLINKS)
         try {
             long fd = libc.syscall(437L, (long)parent, path, how, 24L)
-            if (fd < 0) fail('OPEN_REJECTED')
+            if (fd < 0) fail('openat2', 'OPEN_REJECTED')
             return (int)fd
         } finally { path.close(); how.close() }
     }
@@ -51,7 +51,7 @@ final class NativeLinux {
         Memory data = new Memory(256)
         data.clear()
         try {
-            if (libc.statx(fd, empty, 0x1000 | 0x100, 0x1fff, data) < 0) fail('METADATA_UNAVAILABLE')
+            if (libc.statx(fd, empty, 0x1000 | 0x100, 0x1fff, data) < 0) fail('statx', 'METADATA_UNAVAILABLE')
             int mask = data.getInt(0)
             if ((mask & 0x13c3) != 0x13c3)
                 throw new SourceAccessException('UNSUPPORTED_METADATA', 'Required precise identity and timestamp metadata is unavailable.')
@@ -68,7 +68,7 @@ final class NativeLinux {
         Memory data = new Memory(112)
         data.clear()
         try {
-            if (libc.fstatvfs(fd, data) < 0) fail('MOUNT_STATUS_UNAVAILABLE')
+            if (libc.fstatvfs(fd, data) < 0) fail('fstatvfs', 'MOUNT_STATUS_UNAVAILABLE')
             return (data.getLong(72) & 1L) != 0L
         } finally { data.close() }
     }
@@ -76,7 +76,7 @@ final class NativeLinux {
     int read(int fd, byte[] buffer) {
         if (buffer.length == 0 || buffer.length > MAX_BUFFER) throw new IllegalArgumentException('Read buffer must be 1 byte to 4 MiB.')
         long count = libc.read(fd, buffer, (long)buffer.length)
-        if (count < 0) fail('READ_FAILED')
+        if (count < 0) fail('read', 'READ_FAILED')
         return count == 0 ? -1 : (int)count
     }
 
@@ -85,7 +85,7 @@ final class NativeLinux {
         try {
             byte[] buffer = new byte[65536]
             long count = libc.readlinkat(fd, empty, buffer, (long)buffer.length)
-            if (count < 0) fail('LINK_METADATA_FAILED')
+            if (count < 0) fail('readlinkat', 'LINK_METADATA_FAILED')
             if (count == buffer.length) throw new SourceAccessException('LINK_TARGET_TOO_LONG', 'Link target exceeds the metadata limit.')
             return Arrays.copyOf(buffer, (int)count)
         } finally { empty.close() }
@@ -93,7 +93,7 @@ final class NativeLinux {
 
     Pointer directory(int fd) {
         Pointer directory = libc.fdopendir(fd)
-        if (directory == null) fail('DIRECTORY_OPEN_FAILED')
+        if (directory == null) fail('fdopendir', 'DIRECTORY_OPEN_FAILED')
         return directory
     }
     byte[] next(Pointer directory) {
@@ -101,7 +101,7 @@ final class NativeLinux {
             Native.setLastError(0)
             Pointer row = libc.readdir(directory)
             if (row == null) {
-                if (Native.getLastError() != 0) fail('DIRECTORY_READ_FAILED')
+                if (Native.getLastError() != 0) fail('readdir', 'DIRECTORY_READ_FAILED')
                 return null
             }
             int length = Short.toUnsignedInt(row.getShort(16))
@@ -115,8 +115,8 @@ final class NativeLinux {
             return name
         }
     }
-    void closeDirectory(Pointer directory) { if (libc.closedir(directory) != 0) fail('CLOSE_FAILED') }
-    void close(int fd) { if (libc.close(fd) != 0) fail('CLOSE_FAILED') }
+    void closeDirectory(Pointer directory) { if (libc.closedir(directory) != 0) fail('closedir', 'CLOSE_FAILED') }
+    void close(int fd) { if (libc.close(fd) != 0) fail('close', 'CLOSE_FAILED') }
 
     private static long unsigned(Pointer data, long offset) { Integer.toUnsignedLong(data.getInt(offset)) }
     private static Memory cString(byte[] value) {
@@ -126,13 +126,22 @@ final class NativeLinux {
         memory.setByte(value.length, (byte)0)
         return memory
     }
-    private static void fail(String code) {
-        int errno = Native.getLastError()
-        if (errno == 38 || errno == 22) code = 'UNSUPPORTED_PLATFORM'
-        else if (errno == 2) code = 'UNAVAILABLE'
-        else if (errno == 13) code = 'UNREADABLE'
-        else if (errno == 18) code = 'MOUNT_BOUNDARY'
-        else if (errno == 40) code = 'SYMLINK_REJECTED'
-        throw new SourceAccessException(code, 'Source operation rejected (' + code + ', errno ' + errno + ').', errno)
+    private static void fail(String operation, String code) {
+        throw failure(operation, code, Native.getLastError())
+    }
+
+    @groovy.transform.PackageScope
+    static SourceAccessException failure(String operation, String code, int errno) {
+        String mapped = code
+        // ENOSYS means a required native operation is unavailable on this runtime.
+        // EINVAL is operation-specific (bad flags/ABI/arguments) and must not be
+        // mislabeled as an unsupported operating system.
+        if (errno == 38) mapped = 'UNSUPPORTED_PLATFORM'
+        else if (errno == 2) mapped = 'UNAVAILABLE'
+        else if (errno == 13) mapped = 'UNREADABLE'
+        else if (errno == 18) mapped = 'MOUNT_BOUNDARY'
+        else if (errno == 40) mapped = 'SYMLINK_REJECTED'
+        return new SourceAccessException(mapped,
+            'Native source operation ' + operation + ' rejected (' + mapped + ', errno ' + errno + ').', errno)
     }
 }

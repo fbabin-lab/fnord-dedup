@@ -13,6 +13,17 @@ if platform.system() != 'Linux' or platform.machine() != 'x86_64':
 subprocess.run(['docker', 'version'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run(['docker', 'compose', 'version'], check=True)
 config = json.loads(subprocess.check_output([str(repo/'scripts/fnord'), 'config', '--format', 'json']))
+postgres_command = [str(value) for value in config['services']['postgres'].get('command', [])]
+disposable_settings = {
+    'fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal',
+    'max_wal_senders=0', 'shared_buffers=256MB', 'checkpoint_timeout=30min',
+    'checkpoint_completion_target=0.9', 'max_wal_size=8GB', 'min_wal_size=1GB',
+    'wal_compression=on'
+}
+active_disposable = disposable_settings.intersection(postgres_command)
+if active_disposable and active_disposable != disposable_settings:
+    missing = ', '.join(sorted(disposable_settings - active_disposable))
+    sys.exit(f'Incomplete disposable PostgreSQL profile; missing: {missing}')
 for name in ['database-password', 'operator-password-hash']:
     if not (repo/'deploy/secrets'/name).is_file():
         sys.exit('Missing credentials. Run ./scripts/setup first.')
@@ -29,4 +40,8 @@ for mount in config['services']['backend'].get('volumes', []):
     if not os.access(path, os.R_OK | os.X_OK):
         sys.exit('The current host user cannot inspect a configured source directory.')
 print(f'Preflight passed; {sources} configured source bind(s).')
+if active_disposable:
+    print('WARNING: PostgreSQL DISPOSABLE mode is active. A crash/power loss may corrupt the database; recreate it and rescan.')
+else:
+    print('PostgreSQL durable mode is active.')
 print('The backend will validate effective mounts and access as its runtime UID at startup.')

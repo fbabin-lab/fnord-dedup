@@ -99,7 +99,7 @@ With multiple selected sources, Fnord holds one complete source tree at a time, 
 
 If the process is interrupted before publication, the in-memory inventory for that source is discarded. Resume restarts that source from its root. A pause/cancel request arriving during the final publication may wait for that publication transaction to finish.
 
-Memory-scan observations deliberately do **not** retain inode, permission/mode, allocated-block, UID, GID or link-count metadata. These database fields are null. Size, entry type, exact mtime/ctime, optional birth time, mount/device metadata, raw path/name bytes and symlink targets remain available. Because inode/link identity is absent, duplicate analysis reports physical/object identity as unknown; SHA-256 duplicate detection and logical duplicate-byte reporting still work.
+Memory-scan observations deliberately do **not** retain inode, permission/mode, allocated-block, UID or GID metadata. These database fields are null. Size, entry type, exact mtime/ctime, optional birth time, mount/device metadata, raw path/name bytes and symlink targets remain available. Because inode/link identity is absent, duplicate analysis reports physical/object identity as unknown; SHA-256 duplicate detection and logical duplicate-byte reporting still work.
 
 Memory use grows with the number and length of paths in a source. Use this mode only when the complete metadata tree for one selected source fits comfortably in the backend memory limit.
 

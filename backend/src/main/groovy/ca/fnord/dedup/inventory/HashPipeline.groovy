@@ -74,14 +74,15 @@ class HashPipeline {
         long nextControlCheck = System.nanoTime() + CONTROL_CHECK_NANOS
         SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
         Map scanOptions = store.parse((String)store.one('SELECT options::text AS options FROM scan WHERE id=?',c.scanId).options)
-        boolean unsafeFast = source.unsafeFast || scanOptions.unsafeFast == Boolean.TRUE
+        boolean memoryScan = scanOptions.memoryScan == Boolean.TRUE
+        boolean unsafeFast = source.unsafeFast || scanOptions.unsafeFast == Boolean.TRUE || memoryScan
         if (unsafeFast) source.unsafeFast = true
         try {
-            FileMetadata expected = metadata(entry)
+            FileMetadata expected = memoryScan ? memoryMetadata(entry) : metadata(entry)
             try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {
                 if (!unsafeFast) store.acceptRoot(c,root.identity())
                 try (ReadOnlyFileAccess.RegularFile file = root.openRegular(c.path,expected)) {
-                    pre = file.metadata()
+                    pre = memoryScan ? null : file.metadata()
                     if (!unsafeFast && !expected.sameFingerprint(pre)) throw new SourceAccessException('CHANGED','The opened file differs from its inventory observation.')
                     MessageDigest sha = MessageDigest.getInstance('SHA-256')
                     byte[] buffer = new byte[1024*1024]
@@ -98,7 +99,7 @@ class HashPipeline {
                         sha.update(buffer,0,count)
                         bytesRead = Math.addExact(bytesRead,(long)count)
                     }
-                    post = file.metadata()
+                    post = memoryScan ? null : file.metadata()
                     if (!unsafeFast && (!expected.sameFingerprint(post) || !file.validateComplete() || bytesRead != expected.size))
                         throw new SourceAccessException('CHANGED','Size, metadata, EOF, or pathname validation failed.')
                     if (stopping.asBoolean || store.shouldStop(c)) throw new InventoryStop()
@@ -208,6 +209,19 @@ class HashPipeline {
     }
 
     private String fingerprint(FileMetadata m) { store.json(new InventoryEntry(metadata:m).fingerprint()) }
+    static FileMetadata memoryMetadata(Map row) {
+        long size = ((Number)row.size_bytes).longValue()
+        long mount = row.mount_id == null ? 0L : ((Number)row.mount_id).longValue()
+        long major = row.device_major == null ? 0L : ((Number)row.device_major).longValue()
+        long minor = row.device_minor == null ? 0L : ((Number)row.device_minor).longValue()
+        long mtime = row.mtime_seconds == null ? 0L : ((Number)row.mtime_seconds).longValue()
+        int mtimeNanos = row.mtime_nanos == null ? 0 : ((Number)row.mtime_nanos).intValue()
+        long ctime = row.ctime_seconds == null ? 0L : ((Number)row.ctime_seconds).longValue()
+        int ctimeNanos = row.ctime_nanos == null ? 0 : ((Number)row.ctime_nanos).intValue()
+        new FileMetadata(0,0100000,0L,size,mount,major,minor,mtime,mtimeNanos,ctime,ctimeNanos,
+            ((Number)row.birth_seconds)?.longValue(),((Number)row.birth_nanos)?.intValue(),null,null,null,null)
+    }
+
     static FileMetadata metadata(Map row) {
         new FileMetadata(((Number)row.metadata_mask).intValue(),((Number)row.mode).intValue(),((Number)row.inode).longValue(),((Number)row.size_bytes).longValue(),
             ((Number)row.mount_id).longValue(),((Number)row.device_major).longValue(),((Number)row.device_minor).longValue(),((Number)row.mtime_seconds).longValue(),

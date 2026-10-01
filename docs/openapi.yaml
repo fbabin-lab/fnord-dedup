@@ -1900,6 +1900,10 @@ components:
           type: boolean
           default: false
           description: Explicitly bypass runtime source safety and consistency checks for this scan.
+        memoryScan:
+          type: boolean
+          default: false
+          description: Keep the whole source inventory in memory until traversal completes, then publish it. Implies unsafeFast.
         textIndexingEnabled:
           type: boolean
           const: false
@@ -2124,6 +2128,8 @@ components:
         includeSignatureCandidates: &id033
           type: boolean
         unsafeFast:
+          type: boolean
+        memoryScan:
           type: boolean
         signatureCatalogRevision: *id007
         signatureRunId:

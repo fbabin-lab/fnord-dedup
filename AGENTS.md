@@ -12,7 +12,7 @@ Use SHA-256, not SHA-1. The default scan hashes only files whose sizes occur at 
 
 Every accepted hash belongs to one scan observation and full successful read. Never accept partial digests or silently reuse a prior scan's hash. Check descriptor metadata before/after reading and invalidate evidence on source changes. Same file in two scans is not two copies. Hard-link paths are not separately stored copies. Report physical savings as unknown, not guaranteed.
 
-Persist jobs, work claims, control requests, checkpoints, and fencing tokens in PostgreSQL. Pausing/cancelling is cooperative. Restart incomplete file reads at byte zero; replay unfinished directories idempotently. Never rely on an in-memory queue as the sole source of work. Never claim instant cancellation of blocked filesystem I/O.
+Persist jobs, work claims, control requests, checkpoints, and fencing tokens in PostgreSQL. Default inventory remains durable and incremental. The explicit scan-level `memoryScan` option is the only exception: it implies unsafe-fast behavior, may keep one whole source inventory in process memory until final publication, and must restart that source from its root after pre-publication process loss. Pausing/cancelling is cooperative. Restart incomplete file reads at byte zero; replay unfinished directories idempotently. Never rely on an in-memory queue as the sole source of work. Never claim instant cancellation of blocked filesystem I/O.
 
 ## Implementation practice
 

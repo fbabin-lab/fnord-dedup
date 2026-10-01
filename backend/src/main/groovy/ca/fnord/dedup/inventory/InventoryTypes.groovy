@@ -72,6 +72,7 @@ class MemoryInventoryEntry {
     Integer ctimeNanos
     Long birthSeconds
     Integer birthNanos
+    Long linkCount
     byte[] linkTarget
     String errorCode
     String errorDetail

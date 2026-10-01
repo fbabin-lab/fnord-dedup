@@ -133,6 +133,7 @@ fsync=off
 synchronous_commit=off
 full_page_writes=off
 wal_level=minimal
+archive_mode=off
 max_wal_senders=0
 shared_buffers=256MB
 checkpoint_timeout=30min

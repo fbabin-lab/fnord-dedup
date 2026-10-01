@@ -16,7 +16,7 @@ config = json.loads(subprocess.check_output([str(repo/'scripts/fnord'), 'config'
 postgres_command = [str(value) for value in config['services']['postgres'].get('command', [])]
 disposable_settings = {
     'fsync=off', 'synchronous_commit=off', 'full_page_writes=off', 'wal_level=minimal',
-    'max_wal_senders=0', 'shared_buffers=256MB', 'checkpoint_timeout=30min',
+    'archive_mode=off', 'max_wal_senders=0', 'shared_buffers=256MB', 'checkpoint_timeout=30min',
     'checkpoint_completion_target=0.9', 'max_wal_size=8GB', 'min_wal_size=1GB',
     'wal_compression=on'
 }

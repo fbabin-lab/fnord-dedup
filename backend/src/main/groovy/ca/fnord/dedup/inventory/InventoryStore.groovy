@@ -343,7 +343,7 @@ class InventoryStore {
                         null,null,null,unsigned(e.mountId),e.deviceMajor,e.deviceMinor,e.mtimeSeconds,e.mtimeNanos,e.ctimeSeconds,e.ctimeNanos,
                         e.birthSeconds,e.birthNanos,e.mtimeSeconds == null ? null : timestamp(e.mtimeSeconds,e.mtimeNanos == null ? 0 : e.mtimeNanos.intValue()),
                         e.ctimeSeconds == null ? null : timestamp(e.ctimeSeconds,e.ctimeNanos == null ? 0 : e.ctimeNanos.intValue()),
-                        null,null,null,null,null,e.linkTarget,e.errorCode ?: 'OBSERVED',coverage,json(e.fingerprint()),Timestamp.from(e.observedAt)] as Object[])
+                        unsigned(e.linkCount),null,null,null,null,e.linkTarget,e.errorCode ?: 'OBSERVED',coverage,json(e.fingerprint()),Timestamp.from(e.observedAt)] as Object[])
                     counters.entries++
                     if (e.entryType == 'REGULAR') { counters.files++; if (e.sizeBytes != null) counters.bytes = counters.bytes.add(new BigDecimal(e.sizeBytes)) }
                     if (e.entryType == 'DIRECTORY') counters.directories++

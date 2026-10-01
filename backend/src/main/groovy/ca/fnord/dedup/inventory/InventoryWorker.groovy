@@ -243,6 +243,7 @@ class InventoryWorker implements SmartLifecycle {
             entry.ctimeNanos = metadata.ctimeNanos
             entry.birthSeconds = metadata.birthSeconds
             entry.birthNanos = metadata.birthNanos
+            entry.linkCount = metadata.linkCount
             if (metadata.isSymlink()) entry.linkTarget = root.readLink(path)
         } catch (SourceAccessException e) {
             entry.errorCode = e.code

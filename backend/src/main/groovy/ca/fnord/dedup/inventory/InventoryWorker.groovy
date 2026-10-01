@@ -125,6 +125,7 @@ class InventoryWorker implements SmartLifecycle {
         SourceDefinition source = store.mapper.readValue(c.sourceSnapshot,SourceDefinition)
         Map scanOptions = store.parse((String)store.one('SELECT options::text AS options FROM scan WHERE id=?',c.scanId).options)
         if (scanOptions.unsafeFast == Boolean.TRUE) source.unsafeFast = true
+        if (scanOptions.memoryScan == Boolean.TRUE) { memoryInventory(c,source); return }
         List<InventoryEntry> batch = new ArrayList<>()
         try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {
             if (!source.unsafeFast) store.acceptRoot(c,root.identity())
@@ -169,6 +170,87 @@ class InventoryWorker implements SmartLifecycle {
         }
         store.complete(c)
     }
+    private static final long MEMORY_CONTROL_CHECK_NANOS = TimeUnit.SECONDS.toNanos(10L)
+
+    private void memoryInventory(WorkClaim c, SourceDefinition source) {
+        if (!source.unsafeFast) throw new JobProblem(409,'MEMORY_SCAN_REQUIRES_UNSAFE_FAST','Memory scan requires unsafe fast mode.')
+        List<MemoryInventoryEntry> entries = new ArrayList<>()
+        try (ReadOnlyFileAccess.Root root = sources.openValidated(source)) {
+            MemoryInventoryEntry rootEntry = observeMemory(root,c.path,-1,new byte[0])
+            if (rootEntry.errorCode != null || rootEntry.entryType != 'DIRECTORY')
+                throw new SourceAccessException(rootEntry.errorCode ?: 'NOT_A_DIRECTORY',rootEntry.errorDetail ?: 'The memory-scan root is not a directory.')
+            entries.add(rootEntry)
+            ArrayDeque<Integer> pending = new ArrayDeque<>()
+            pending.add(0)
+            long nextControlCheck = System.nanoTime() + MEMORY_CONTROL_CHECK_NANOS
+
+            while (!pending.isEmpty()) {
+                int directoryIndex = pending.removeLast()
+                MemoryInventoryEntry directory = entries.get(directoryIndex)
+                try (ReadOnlyFileAccess.DirectoryCursor cursor = root.list(directory.path)) {
+                    while (true) {
+                        if (stopping) throw new InventoryStop()
+                        long now = System.nanoTime()
+                        if (now >= nextControlCheck) {
+                            if (store.shouldStop(c)) throw new InventoryStop()
+                            nextControlCheck = now + MEMORY_CONTROL_CHECK_NANOS
+                        }
+                        byte[] name = cursor.next()
+                        if (name == null) break
+                        byte[] path = append(directory.path,name)
+                        MemoryInventoryEntry entry = observeMemory(root,path,directoryIndex,name)
+                        int index = entries.size()
+                        entries.add(entry)
+                        if (entry.entryType == 'DIRECTORY' && entry.errorCode == null) pending.add(index)
+                    }
+                    directory.directoryComplete = true
+                } catch (SourceAccessException e) {
+                    directory.errorCode = e.code
+                    directory.errorDetail = e.message
+                }
+            }
+
+            if (stopping || store.shouldStop(c)) throw new InventoryStop()
+            store.publishMemoryInventory(c,entries)
+        } catch (InventoryStop ignored) {
+            entries.clear()
+            store.checkpoint(c)
+            return
+        } catch (SourceAccessException e) {
+            entries.clear()
+            store.complete(c,e.code,e.message)
+            return
+        }
+        store.complete(c)
+    }
+
+    private static MemoryInventoryEntry observeMemory(ReadOnlyFileAccess.Root root, byte[] path, int parentIndex, byte[] name) {
+        MemoryInventoryEntry entry = new MemoryInventoryEntry(parentIndex:parentIndex,name:name,path:path)
+        try {
+            FileMetadata metadata = root.metadata(path)
+            entry.entryType = metadata.isDirectory() ? 'DIRECTORY' : metadata.isRegular() ? 'REGULAR' :
+                metadata.isSymlink() ? 'SYMLINK' : 'SPECIAL'
+            if (metadata.isRegular()) {
+                if (metadata.size < 0L) throw new SourceAccessException('UNSUPPORTED_SIZE','The file size exceeds the supported signed 64-bit range.')
+                entry.sizeBytes = metadata.size
+            }
+            entry.mountId = metadata.mountId
+            entry.deviceMajor = metadata.deviceMajor
+            entry.deviceMinor = metadata.deviceMinor
+            entry.mtimeSeconds = metadata.mtimeSeconds
+            entry.mtimeNanos = metadata.mtimeNanos
+            entry.ctimeSeconds = metadata.ctimeSeconds
+            entry.ctimeNanos = metadata.ctimeNanos
+            entry.birthSeconds = metadata.birthSeconds
+            entry.birthNanos = metadata.birthNanos
+            if (metadata.isSymlink()) entry.linkTarget = root.readLink(path)
+        } catch (SourceAccessException e) {
+            entry.errorCode = e.code
+            entry.errorDetail = e.message
+        }
+        entry
+    }
+
     private static InventoryEntry observe(ReadOnlyFileAccess.Root root, byte[] path, UUID parent, byte[] name, SourceDefinition source, MountTable mounts) {
         InventoryEntry entry = new InventoryEntry(parentId:parent,name:name,path:path)
         try {

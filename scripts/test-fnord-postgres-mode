@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Unit-test scripts/fnord mode selection without invoking Docker."""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+
+repo = Path(__file__).resolve().parent.parent
+fnord = repo / "scripts" / "fnord"
+
+with tempfile.TemporaryDirectory() as tmp:
+    fake = Path(tmp) / "docker"
+    fake.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "print(json.dumps(sys.argv[1:]))\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+
+    base_env = dict(os.environ)
+    base_env["PATH"] = tmp + os.pathsep + base_env.get("PATH", "")
+
+    def invocation(value: str) -> list[str]:
+        env = dict(base_env, FNORD_POSTGRES_DISPOSABLE=value)
+        result = subprocess.run(
+            [str(fnord), "config", "--format", "json"],
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+        return json.loads(result.stdout)
+
+    durable = invocation("false")
+    assert "compose.postgres-disposable.yaml" not in durable, durable
+
+    disposable = invocation("true")
+    assert "compose.postgres-disposable.yaml" in disposable, disposable
+    assert disposable.index("compose.postgres-disposable.yaml") > disposable.index("compose.yaml")
+
+    invalid_env = dict(base_env, FNORD_POSTGRES_DISPOSABLE="maybe")
+    invalid = subprocess.run(
+        [str(fnord), "config"],
+        env=invalid_env,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert invalid.returncode == 2, invalid
+    assert "Invalid FNORD_POSTGRES_DISPOSABLE" in invalid.stderr, invalid.stderr
+
+print("fnord PostgreSQL mode selection tests passed.")

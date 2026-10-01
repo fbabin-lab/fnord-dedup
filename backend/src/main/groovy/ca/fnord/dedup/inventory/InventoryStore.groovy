@@ -341,8 +341,8 @@ class InventoryStore {
                     String coverage = e.entryType == 'DIRECTORY' ? (e.directoryComplete ? 'COMPLETE' : 'PARTIAL') : null
                     entryBatch.add([UUID.randomUUID(),c.scanId,locationId,c.sourceId,c.sourceInstanceId,e.entryType,e.sizeBytes,
                         null,null,null,unsigned(e.mountId),e.deviceMajor,e.deviceMinor,e.mtimeSeconds,e.mtimeNanos,e.ctimeSeconds,e.ctimeNanos,
-                        e.birthSeconds,e.birthNanos,e.mtimeSeconds == null ? null : timestamp(e.mtimeSeconds,e.mtimeNanos ?: 0),
-                        e.ctimeSeconds == null ? null : timestamp(e.ctimeSeconds,e.ctimeNanos ?: 0),
+                        e.birthSeconds,e.birthNanos,e.mtimeSeconds == null ? null : timestamp(e.mtimeSeconds,e.mtimeNanos == null ? 0 : e.mtimeNanos.intValue()),
+                        e.ctimeSeconds == null ? null : timestamp(e.ctimeSeconds,e.ctimeNanos == null ? 0 : e.ctimeNanos.intValue()),
                         null,null,null,null,null,e.linkTarget,e.errorCode ?: 'OBSERVED',coverage,json(e.fingerprint()),Timestamp.from(e.observedAt)] as Object[])
                     counters.entries++
                     if (e.entryType == 'REGULAR') { counters.files++; if (e.sizeBytes != null) counters.bytes = counters.bytes.add(new BigDecimal(e.sizeBytes)) }

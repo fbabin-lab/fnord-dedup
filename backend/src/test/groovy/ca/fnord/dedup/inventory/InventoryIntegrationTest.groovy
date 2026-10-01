@@ -129,6 +129,37 @@ class InventoryIntegrationTest {
         } finally { Files.deleteIfExists(second.resolve('another')); Files.deleteIfExists(second) }
     }
 
+    @Test void memoryScanPublishesWholeTreeWithoutDirectoryWorkBacklogAndOmitsHeavyMetadata() {
+        Files.createDirectories(fixture.resolve('nested/empty'))
+        Files.writeString(fixture.resolve('a'),'hello')
+        Files.writeString(fixture.resolve('nested/b'),'world')
+        Map created = service.create([name:'Memory inventory',sourceIds:[sourceId.toString()],memoryScan:true],
+            UUID.randomUUID().toString(),'operator',correlation)
+        jdbc.update("UPDATE job SET type='INVENTORY' WHERE id=?",UUID.fromString(created.jobId))
+        jdbc.update('UPDATE scan SET options=jsonb_set(options,?,?::jsonb) WHERE id=?','{inventoryOnly}','true',UUID.fromString(created.scanId))
+
+        Map result = finish(created)
+        assertEquals('COMPLETED',result.job.state)
+        assertTrue(result.memoryScan as boolean)
+        assertTrue(result.unsafeFast as boolean)
+        assertEquals('5',result.job.discoveredEntries)
+        assertEquals(1,jdbc.queryForObject('SELECT count(*) FROM work_item WHERE job_id=?',Integer,UUID.fromString(created.jobId)))
+        assertEquals('0',result.job.pendingWork)
+        assertEquals('COMPLETE',result.sources[0].coverage)
+
+        Map row = jdbc.queryForMap("""SELECT e.* FROM scan_entry e JOIN file_location l ON l.id=e.location_id
+            WHERE e.scan_id=? AND l.display_path='a'""",UUID.fromString(created.scanId))
+        assertEquals(5L,row.size_bytes)
+        assertNotNull(row.mtime_seconds)
+        assertNotNull(row.ctime_seconds)
+        assertNull(row.mode)
+        assertNull(row.inode)
+        assertNull(row.blocks)
+        assertNull(row.uid)
+        assertNull(row.gid)
+        assertNotNull(row.link_count)
+    }
+
     @Test void creationIsIdempotentAndRejectsUnsupportedOptionsAndQueueFlood() {
         def first = create('repeat')
         assertEquals(first,create('repeat'))

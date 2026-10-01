@@ -26,6 +26,8 @@ import { Api, errorMessage, ScanPage, SourceList } from './api';
         <label class="source-choice"><input type="checkbox" [formControl]="includeSignatures" (change)="resetKey()"> Include known-signature size candidates</label><p class="small muted">Off by default. Enabling this reads additional unique-size files matching enabled signature sizes in the catalog captured when the scan starts.</p>
         <label class="source-choice"><input type="checkbox" [formControl]="unsafeFast" (change)="unsafeModeChanged()"> Unsafe fast mode</label>
         <p class="notice">Unsafe fast mode bypasses mount, overlap and consistency validation for speed. Results do not carry the normal validated evidence guarantees. The source is still expected to be mounted read-only.</p>
+        <label class="source-choice"><input type="checkbox" [formControl]="memoryScan" (change)="memoryModeChanged()"> Memory scan</label>
+        <p class="small muted">Keeps the whole metadata inventory in memory and publishes it only after traversal completes. It creates no child directory tasks and restarts the source from its root if interrupted. Memory scan automatically enables unsafe fast mode.</p>
         <button mat-flat-button type="submit" [disabled]="name.invalid || selected().size === 0 || busy()">{{ busy() ? 'Queueing…' : 'Start scan' }}</button>
       </form>
     </section>
@@ -48,7 +50,8 @@ export class Scans implements OnInit {
   readonly name = new FormControl('', {nonNullable:true, validators:[Validators.required, Validators.maxLength(200)]});
   readonly includeSignatures = new FormControl(false,{nonNullable:true});
   readonly unsafeFast = new FormControl(false,{nonNullable:true});
-  readonly form = new FormGroup({name:this.name,includeSignatures:this.includeSignatures,unsafeFast:this.unsafeFast});
+  readonly memoryScan = new FormControl(false,{nonNullable:true});
+  readonly form = new FormGroup({name:this.name,includeSignatures:this.includeSignatures,unsafeFast:this.unsafeFast,memoryScan:this.memoryScan});
   readonly selected = signal(new Set<string>());
   readonly sources = signal<SourceList | null>(null);
   readonly page = signal<ScanPage | null>(null);
@@ -62,9 +65,14 @@ export class Scans implements OnInit {
   }
   unsafeModeChanged(): void {
     if (!this.unsafeFast.value) {
+      this.memoryScan.setValue(false);
       const allowed = new Set((this.sources()?.sources ?? []).filter(source => source.status === 'AVAILABLE' && !source.unsafeFast).map(source => source.id));
       this.selected.set(new Set([...this.selected()].filter(id => allowed.has(id))));
     }
+    this.resetKey();
+  }
+  memoryModeChanged(): void {
+    if (this.memoryScan.value) this.unsafeFast.setValue(true);
     this.resetKey();
   }
   toggle(id: string, event: Event): void {
@@ -87,7 +95,7 @@ export class Scans implements OnInit {
     if (this.name.invalid || this.busy() || this.selected().size === 0) return;
     this.busy.set(true); this.error.set('');
     try {
-      const created = await this.api.createScan({name:this.name.value, sourceIds:[...this.selected()], hashAlgorithm:'SHA-256', includeSignatureCandidates:this.includeSignatures.value, textIndexingEnabled:false, unsafeFast:this.unsafeFast.value},this.requestKey);
+      const created = await this.api.createScan({name:this.name.value, sourceIds:[...this.selected()], hashAlgorithm:'SHA-256', includeSignatureCandidates:this.includeSignatures.value, textIndexingEnabled:false, unsafeFast:this.unsafeFast.value, memoryScan:this.memoryScan.value},this.requestKey);
       await this.router.navigate(['/scans',created.scanId]);
     } catch (e) { this.error.set(errorMessage(e)); }
     finally { this.busy.set(false); }

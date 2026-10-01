@@ -97,6 +97,26 @@ class HashIntegrationTest {
             assertEquals('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',result.items.find { it.sizeBytes=='0' }.digest)
         } finally { Files.deleteIfExists(second.resolve('hello-elsewhere')); Files.deleteIfExists(second.resolve('empty-two')); Files.delete(second) }
     }
+    @Test void memoryScanContinuesIntoHashingWithUnknownPhysicalIdentity() {
+        Files.writeString(fixture.resolve('a'),'hello')
+        Files.writeString(fixture.resolve('b'),'hello')
+        Map scan = inventory.create([name:'Memory hash fixtures',sourceIds:[sourceId.toString()],memoryScan:true],
+            UUID.randomUUID().toString(),'operator',correlation)
+        finish(scan)
+        assertEquals('COMPLETED',job(scan).state)
+        assertEquals(2,sources.bodyReads)
+
+        def accepted = evidence(entry(scan,'a')).accepted
+        assertEquals('2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',accepted.digest)
+        assertNull(accepted.preFingerprint)
+        assertNull(accepted.postFingerprint)
+
+        def group = groups(scan).items.first()
+        assertEquals('2',group.pathCount)
+        assertNull(group.objectCount)
+        assertEquals('IDENTITY_UNKNOWN',group.identityStatus)
+    }
+
     @Test void uniqueAndSoleEmptyStayUnhashedManualIsIdempotentAndReuseRetainsTimestamp() {
         Files.writeString(fixture.resolve('only'),'hello'); Files.writeString(fixture.resolve('empty'),'')
         Map scan=create(); finish(scan); assertEquals(0,sources.bodyReads)

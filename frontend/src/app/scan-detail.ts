@@ -23,6 +23,7 @@ export function averageRate(job: Job): string | null {
       <p><a mat-flat-button [routerLink]="['/scans',value.id,'files']">Open file explorer and notes</a></p>
       <p class="eyebrow">SCAN EVIDENCE</p><h1>{{ value.name }}</h1>
       @if (value.unsafeFast) { <p class="notice"><strong>UNSAFE FAST MODE</strong> — source safety and consistency validation is bypassed for remaining work in this scan. Do not treat these results as validated evidence.</p> }
+      @if (value.memoryScan && !value.inventoryFrozenAt) { <p class="notice"><strong>MEMORY SCAN</strong> — discovery stays in process memory and is published only when this source traversal finishes. Entry counters may remain unchanged during traversal.</p> }
       <p class="small muted">Created {{ value.createdAt | date:'medium':'UTC' }} UTC · {{ value.id }}</p>
       <section class="panel" aria-label="Scan progress"><div class="section-head"><h2>Scan progress · {{ value.job.phase }}</h2><span class="badge" [class.blocked]="value.job.errorCount !== '0'">{{ value.job.state }}</span></div>
         <p class="notice"><strong>{{ value.inventoryFrozenAt ? 'Inventory finished.' : 'Scan incomplete.' }}</strong>

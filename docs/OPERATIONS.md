@@ -83,6 +83,26 @@ Unsafe mode It bypasses runtime read-only/mount-table checks, application-storag
 
 An unsafe-fast scan can therefore include changed files, crossed mount boundaries, overlapping sources, or inconsistent observations without detecting them. Do not treat its hashes/groups as validated forensic evidence or use them as the basis for destructive external actions without independent revalidation.
 
+### Memory scan mode
+
+The New Scan page also offers **Memory scan**. This mode is off by default and automatically enables **Unsafe fast mode**.
+
+For each selected source root, memory scan:
+- recursively enumerates the whole source in process memory;
+- creates no child directory work items in PostgreSQL;
+- performs no per-entry inventory database writes while walking the filesystem;
+- checks durable pause/cancel state at most every ten seconds during traversal;
+- publishes the completed source inventory in one database publication transaction using JDBC batches;
+- then continues through candidate selection, hashing, signature matching and duplicate analysis normally.
+
+With multiple selected sources, Fnord holds one complete source tree at a time, publishes it, then scans the next source. It does not retain every selected source simultaneously.
+
+If the process is interrupted before publication, the in-memory inventory for that source is discarded. Resume restarts that source from its root. A pause/cancel request arriving during the final publication may wait for that publication transaction to finish.
+
+Memory-scan observations deliberately do **not** retain inode, permission/mode, allocated-block, UID or GID metadata. These database fields are null. Size, entry type, exact mtime/ctime, optional birth time, mount/device metadata, raw path/name bytes and symlink targets remain available. Because inode/link identity is absent, duplicate analysis reports physical/object identity as unknown; SHA-256 duplicate detection and logical duplicate-byte reporting still work.
+
+Memory use grows with the number and length of paths in a source. Use this mode only when the complete metadata tree for one selected source fits comfortably in the backend memory limit.
+
 ### UID/GID and native library loading
 
 The backend runs as UID/GID 10001. The operator must grant that UID, an appropriate read group, or other read-only ACL sufficient directory search/list and file-read access. The application never changes source permissions. If an existing host group grants read access, add its numeric GID under `services.backend.group_add` in the private override:

@@ -15,11 +15,11 @@ class InventoryService {
     InventoryService(InventoryStore store, SourceRegistry sources) { this.store = store; this.sources = sources }
 
     Map<String,Object> create(Map<String,Object> body, String key, String actor, String correlationId) {
-        Set<String> allowed = Set.of('name','sourceIds','hashAlgorithm','includeSignatureCandidates','textIndexingEnabled','unsafeFast')
+        Set<String> allowed = Set.of('name','sourceIds','hashAlgorithm','includeSignatureCandidates','textIndexingEnabled','unsafeFast','memoryScan')
         if (!allowed.containsAll(body.keySet())) throw new JobProblem(422,'UNSUPPORTED_OPTION','The request contains an unsupported scan option.')
         if (!(body.name instanceof String) || ((String)body.name).isBlank() || ((String)body.name).length() > 200)
             throw new JobProblem(422,'INVALID_NAME','Enter a scan name of 1 to 200 characters.')
-        if (body.getOrDefault('hashAlgorithm','SHA-256') != 'SHA-256' || !(body.getOrDefault('includeSignatureCandidates',false) instanceof Boolean) || !(body.getOrDefault('unsafeFast',false) instanceof Boolean) || body.getOrDefault('textIndexingEnabled',false) != Boolean.FALSE)
+        if (body.getOrDefault('hashAlgorithm','SHA-256') != 'SHA-256' || !(body.getOrDefault('includeSignatureCandidates',false) instanceof Boolean) || !(body.getOrDefault('unsafeFast',false) instanceof Boolean) || !(body.getOrDefault('memoryScan',false) instanceof Boolean) || body.getOrDefault('textIndexingEnabled',false) != Boolean.FALSE)
             throw new JobProblem(422,'UNSUPPORTED_OPTION','Only SHA-256 is supported. Text indexing is not available yet.')
         if (!(body.sourceIds instanceof List) || ((List)body.sourceIds).isEmpty() || ((List)body.sourceIds).size() > 100)
             throw new JobProblem(422,'INVALID_SOURCES','Select between 1 and 100 registered sources.')
@@ -32,7 +32,10 @@ class InventoryService {
         selected.sort { UUID a, UUID b -> a.compareTo(b) }
         String requestKey = key == null ? UUID.randomUUID().toString() : key
         if (!(requestKey ==~ '[!-~]{1,128}')) throw new JobProblem(422,'INVALID_IDEMPOTENCY_KEY','Use 1 to 128 printable ASCII characters for Idempotency-Key.')
-        Map<String,Object> normalized = [name:body.name,sourceIds:selected,hashAlgorithm:'SHA-256',includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),textIndexingEnabled:false,unsafeFast:body.getOrDefault('unsafeFast',false)] as Map<String,Object>
+        boolean memoryScan = body.getOrDefault('memoryScan',false) == Boolean.TRUE
+        boolean requestedUnsafe = body.getOrDefault('unsafeFast',false) == Boolean.TRUE || memoryScan
+        Map<String,Object> normalized = [name:body.name,sourceIds:selected,hashAlgorithm:'SHA-256',includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),
+            textIndexingEnabled:false,unsafeFast:requestedUnsafe,memoryScan:memoryScan] as Map<String,Object>
         String payloadHash = HexFormat.of().formatHex(MessageDigest.getInstance('SHA-256').digest(store.json(normalized).getBytes(StandardCharsets.UTF_8)))
         store.tx.execute { status ->
             store.one('SELECT id FROM job_admission WHERE id=1 FOR UPDATE')
@@ -44,7 +47,7 @@ class InventoryService {
             if (store.jdbc.queryForObject("SELECT count(*) FROM job WHERE state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED')",Long) >= 10L ||
                 store.jdbc.queryForObject("SELECT count(*) FROM idempotency_record WHERE actor=? AND endpoint IN ('/scans','/hash-jobs','/signature-check-jobs') AND created_at>clock_timestamp()-interval '1 minute'",Long,actor) >= 5L)
                 throw new JobProblem(429,'SCAN_CAPACITY','The scan queue or creation rate limit has been reached. Finish or cancel existing work, or retry later.')
-            boolean unsafeFast = body.getOrDefault('unsafeFast',false) == Boolean.TRUE
+            boolean unsafeFast = requestedUnsafe
             List<SourceDefinition> definitions = new ArrayList<>()
             for (UUID id : selected) {
                 SourceDefinition source = sources.definition(id)
@@ -60,7 +63,7 @@ class InventoryService {
             }
             if (unsafeFast) definitions.each { SourceDefinition source -> source.unsafeFast = true }
             UUID scanId = UUID.randomUUID(), jobId = UUID.randomUUID()
-            store.jdbc.update('INSERT INTO scan(id,name,configuration_revision,options,signature_catalog_revision) VALUES (?,?,?,?::jsonb,?)',scanId,body.name,sources.revision,store.json([hashAlgorithm:'SHA-256',inventoryOnly:false,includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),textIndexingEnabled:false,unsafeFast:unsafeFast]),SignaturePipeline.current(store))
+            store.jdbc.update('INSERT INTO scan(id,name,configuration_revision,options,signature_catalog_revision) VALUES (?,?,?,?::jsonb,?)',scanId,body.name,sources.revision,store.json([hashAlgorithm:'SHA-256',inventoryOnly:false,includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),textIndexingEnabled:false,unsafeFast:unsafeFast,memoryScan:memoryScan]),SignaturePipeline.current(store))
             store.jdbc.update("INSERT INTO job(id,scan_id,type,phase,state) VALUES (?,?,'SCAN','INVENTORY','QUEUED')",jobId,scanId)
             for (SourceDefinition source : definitions) {
                 String snapshot = store.json(source)
@@ -70,8 +73,8 @@ class InventoryService {
                 store.jdbc.update('INSERT INTO scan_source(scan_id,source_id,source_instance_id,root_location_id,snapshot) VALUES (?,?,?,?,?::jsonb)',scanId,source.id,source.sourceInstanceId,location,snapshot)
                 store.addWork(jobId,location)
             }
-            store.event(jobId,'QUEUED',actor,[includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),unsafeFast:unsafeFast,catalogRevision:store.one('SELECT signature_catalog_revision FROM scan WHERE id=?',scanId).signature_catalog_revision.toString()])
-            store.jdbc.update('INSERT INTO audit_event(id,actor,action,correlation_id,details) VALUES (?,?,?,?,?::jsonb)',UUID.randomUUID(),actor,'SCAN_CREATED',UUID.fromString(correlationId),store.json([scanId:scanId,jobId:jobId,includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),unsafeFast:unsafeFast,catalogRevision:store.one('SELECT signature_catalog_revision FROM scan WHERE id=?',scanId).signature_catalog_revision.toString()]))
+            store.event(jobId,'QUEUED',actor,[includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),unsafeFast:unsafeFast,memoryScan:memoryScan,catalogRevision:store.one('SELECT signature_catalog_revision FROM scan WHERE id=?',scanId).signature_catalog_revision.toString()])
+            store.jdbc.update('INSERT INTO audit_event(id,actor,action,correlation_id,details) VALUES (?,?,?,?,?::jsonb)',UUID.randomUUID(),actor,'SCAN_CREATED',UUID.fromString(correlationId),store.json([scanId:scanId,jobId:jobId,includeSignatureCandidates:body.getOrDefault('includeSignatureCandidates',false),unsafeFast:unsafeFast,memoryScan:memoryScan,catalogRevision:store.one('SELECT signature_catalog_revision FROM scan WHERE id=?',scanId).signature_catalog_revision.toString()]))
             Map<String,Object> response = [scanId:scanId.toString(),jobId:jobId.toString(),inventoryOnly:false] as Map<String,Object>
             store.jdbc.update('INSERT INTO idempotency_record(actor,endpoint,request_key,payload_hash,response) VALUES (?,?,?,?,?::jsonb)',actor,'/scans',requestKey,payloadHash,store.json(response))
             response
@@ -175,7 +178,7 @@ class InventoryService {
         }
         [id:row.id,name:row.name,configurationRevision:row.configuration_revision,createdAt:time(row.created_at),
          inventoryFrozenAt:time(row.inventory_frozen_at),inventoryOnly:store.parse(row.options.toString()).inventoryOnly,analysisAvailable:row.current_analysis_id != null,
-         includeSignatureCandidates:store.parse(row.options.toString()).includeSignatureCandidates,unsafeFast:store.parse(row.options.toString()).unsafeFast == Boolean.TRUE,signatureCatalogRevision:row.signature_catalog_revision.toString(),signatureRunId:row.current_signature_run_id,
+         includeSignatureCandidates:store.parse(row.options.toString()).includeSignatureCandidates,unsafeFast:store.parse(row.options.toString()).unsafeFast == Boolean.TRUE,memoryScan:store.parse(row.options.toString()).memoryScan == Boolean.TRUE,signatureCatalogRevision:row.signature_catalog_revision.toString(),signatureRunId:row.current_signature_run_id,
          analysisId:row.current_analysis_id,evidenceRevision:row.evidence_revision.toString(),
          activeHashJobs:store.jdbc.queryForList("SELECT id FROM job WHERE scan_id=? AND type IN ('HASH','SIGNATURE_CHECK','SIGNATURE_MATCH') AND state NOT IN ('COMPLETED','COMPLETED_WITH_ERRORS','CANCELLED','FAILED') ORDER BY sequence LIMIT 10",id).collect { Map item -> job((UUID)item.id) },
          latestJob:job((UUID)store.one('SELECT id FROM job WHERE scan_id=? ORDER BY sequence DESC LIMIT 1',id).id),

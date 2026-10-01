@@ -842,6 +842,8 @@ export interface components {
             includeSignatureCandidates: boolean;
             /** @default false */
             unsafeFast?: boolean;
+            /** @default false */
+            memoryScan?: boolean;
             /**
              * @default false
              * @constant
@@ -936,6 +938,7 @@ export interface components {
             activeHashJobs: components["schemas"]["Job"][];
             includeSignatureCandidates?: boolean;
             unsafeFast?: boolean;
+            memoryScan?: boolean;
             signatureCatalogRevision?: string;
             signatureRunId?: string | null;
         };

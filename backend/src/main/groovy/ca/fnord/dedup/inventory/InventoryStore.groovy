@@ -313,8 +313,12 @@ class InventoryStore {
             unsigned(m?.inode),unsigned(m?.mountId),m?.deviceMajor,m?.deviceMinor,m?.mtimeSeconds,m?.mtimeNanos,m?.ctimeSeconds,m?.ctimeNanos,
             m?.birthSeconds,m?.birthNanos,m == null ? null : timestamp(m.mtimeSeconds,m.mtimeNanos),m == null ? null : timestamp(m.ctimeSeconds,m.ctimeNanos),
             unsigned(m?.linkCount),unsigned(m?.blocks),m?.uid,m?.gid,e.filesystem,e.linkTarget,e.errorCode ?: (e.excluded ? 'EXCLUDED_BY_POLICY' : 'OBSERVED'),coverage,fp,Timestamp.from(e.observedAt))
-        Map original = one('SELECT id,fingerprint=?::jsonb AS matches FROM scan_entry WHERE scan_id=? AND location_id=?',fp,c.scanId,locationId)
-        boolean stable = original.matches == Boolean.TRUE
+        Map original = inserted
+        boolean stable = true
+        if (inserted == null) {
+            original = one('SELECT id,fingerprint=?::jsonb AS matches FROM scan_entry WHERE scan_id=? AND location_id=?',fp,c.scanId,locationId)
+            stable = original.matches == Boolean.TRUE
+        }
         if (!stable) {
             jdbc.update('UPDATE scan SET query_revision=query_revision+1 WHERE id=?',c.scanId)
             jdbc.update("INSERT INTO observation_validation(entry_id,outcome,observed_fingerprint) VALUES (?,'UNSTABLE',?::jsonb) ON CONFLICT DO NOTHING",original.id,fp)

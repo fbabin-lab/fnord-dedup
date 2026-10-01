@@ -57,6 +57,44 @@ class InventoryEntry {
 }
 
 @CompileStatic
+class MemoryInventoryEntry {
+    int parentIndex = -1
+    byte[] name
+    byte[] path
+    String entryType = 'UNKNOWN'
+    Long sizeBytes
+    Long mountId
+    Long deviceMajor
+    Long deviceMinor
+    Long mtimeSeconds
+    Integer mtimeNanos
+    Long ctimeSeconds
+    Integer ctimeNanos
+    Long birthSeconds
+    Integer birthNanos
+    byte[] linkTarget
+    String errorCode
+    String errorDetail
+    boolean directoryComplete
+    Instant observedAt = Instant.now()
+
+    Map<String,Object> fingerprint() {
+        Map<String,Object> value = new LinkedHashMap<>()
+        value.put('type',entryType)
+        value.put('size',sizeBytes == null ? null : Long.toString(sizeBytes))
+        value.put('mtimeSeconds',mtimeSeconds)
+        value.put('mtimeNanos',mtimeNanos)
+        value.put('ctimeSeconds',ctimeSeconds)
+        value.put('ctimeNanos',ctimeNanos)
+        value.put('birthSeconds',birthSeconds)
+        value.put('birthNanos',birthNanos)
+        value.put('linkTarget',linkTarget == null ? null : Base64.encoder.encodeToString(linkTarget))
+        value.put('errorCode',errorCode)
+        value
+    }
+}
+
+@CompileStatic
 class WorkClaim {
     String kind = 'DIRECTORY'
     UUID entryId

@@ -131,7 +131,7 @@ Define narrow interfaces such as `ReadOnlyFileAccess`, `InventoryRepository`, `W
 
 **INV-04 — Missing evidence is not negative evidence.** `NOT_HASHED`, `NOT_INDEXED`, unreadable, stale, partial, and unavailable are not “not duplicated,” “no signature match,” or “clean.”
 
-**INV-05 — Durable control.** A scan/job is recoverable from PostgreSQL state after process loss. An in-memory queue or flag is never the only record of work or a pause/cancel request.
+**INV-05 — Durable control.** In the default durable deployment, a scan/job is recoverable from PostgreSQL state after process loss. An in-memory queue or flag is never the only record of work or a pause/cancel request. An explicit operator-selected disposable PostgreSQL deployment may waive database/host crash recovery and require database recreation/rescan; this mode must never be the default or be presented as crash-durable.
 
 **INV-06 — Safe publication.** Partial hashing, grouping, import, and export results are never published as complete. Aggregate revisions are atomically switched into visibility after completion.
 
@@ -757,7 +757,7 @@ Evidence mutations increment a per-scan evidence revision under a short lock. Gr
 
 ### 17.1 Services and storage
 
-Provide a base Compose stack with backend, frontend, PostgreSQL, health checks, project-scoped networks, database volume, and application artifact volume. Do not hardcode global container names or network names that collide with another stack. Support `COMPOSE_PROJECT_NAME` and configurable host port.
+Provide a base Compose stack with backend, frontend, PostgreSQL, health checks, project-scoped networks, database volume, and application artifact volume. Keep PostgreSQL crash durability as the default. An explicit disposable-database Compose override may trade crash durability for write throughput when the operator accepts database recreation/rescan after an unclean failure. Do not hardcode global container names or network names that collide with another stack. Support `COMPOSE_PROJECT_NAME` and configurable host port.
 
 Publish only the frontend by default on `127.0.0.1:8088`. Backend and PostgreSQL remain on internal networks. Remote exposure is an explicit operator decision requiring TLS and authentication. Separate the database-only network from the frontend/backend network where practical.
 

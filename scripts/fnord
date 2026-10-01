@@ -2,6 +2,26 @@
 set -euo pipefail
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir/deploy"
+
 compose_args=(-f compose.yaml)
+disposable="${FNORD_POSTGRES_DISPOSABLE-}"
+if [[ -z "$disposable" && -f .env ]]; then
+  disposable="$(grep -E '^[[:space:]]*FNORD_POSTGRES_DISPOSABLE[[:space:]]*=' .env | tail -n 1 | cut -d= -f2- | tr -d '[:space:]' || true)"
+  disposable="${disposable#\'}"; disposable="${disposable%\'}"
+  disposable="${disposable#\"}"; disposable="${disposable%\"}"
+fi
+
+case "${disposable,,}" in
+  true|1|yes|on)
+    compose_args+=(-f compose.postgres-disposable.yaml)
+    ;;
+  false|0|no|off|"")
+    ;;
+  *)
+    printf 'Invalid FNORD_POSTGRES_DISPOSABLE=%q; use true or false.\n' "$disposable" >&2
+    exit 2
+    ;;
+esac
+
 if [[ -f compose.sources.yaml ]]; then compose_args+=(-f compose.sources.yaml); fi
 exec docker compose "${compose_args[@]}" "$@"

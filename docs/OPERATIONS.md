@@ -79,7 +79,7 @@ fnord:
       unsafe-fast: true
 ```
 
-Unsafe mode It bypasses runtime read-only/mount-table checks, application-storage/overlap checks, repeated root/directory identity checks, per-component path reopening, nested-mount exclusion, and pre/post file consistency validation. Directory/file paths are opened directly beneath the configured root, metadata is collected once for persistence, and regular-file type gating remains before content reads. The public filesystem adapter still exposes no write/delete/rename/execute operation, and Docker should still mount the source `read_only: true`; however, the application no longer verifies those guarantees.
+Unsafe mode bypasses runtime read-only/mount-table checks, application-storage/overlap checks, repeated root/directory identity checks, per-component path reopening, nested-mount exclusion, and pre/post file consistency validation. Directory/file paths are opened directly beneath the configured root, metadata is collected once for persistence, and regular-file type gating remains before content reads. The public filesystem adapter still exposes no write/delete/rename/execute operation, and Docker should still mount the source `read_only: true`; however, the application no longer verifies those guarantees.
 
 An unsafe-fast scan can therefore include changed files, crossed mount boundaries, overlapping sources, or inconsistent observations without detecting them. Do not treat its hashes/groups as validated forensic evidence or use them as the basis for destructive external actions without independent revalidation.
 
@@ -108,6 +108,55 @@ curl --fail http://127.0.0.1:8088/api/v1/system/health
 The backend emits structured JSON logs and correlation IDs. Source contents and operator passwords are not logged by application code. Nginx access logs are disabled. Compose rotates logs at three 10 MiB files per service. Backend/frontend memory and PID limits, read-only roots, tmpfs and graceful shutdown are configured. PostgreSQL persists on its own named volume mounted at the image's PostgreSQL-18 parent data directory, `/var/lib/postgresql`. Application artifacts have a separate backend-only named volume.
 
 Source unavailability degrades that source's status; it does not erase configuration history or make the health endpoint fail. Database unavailability returns DOWN and prevents normal application initialization/work. Actuator metrics infrastructure is present through Boot, but only health is exposed. Job progress comes from persisted counters and heartbeat/checkpoint timestamps; committed state events include the job ID in structured logs.
+
+## Disposable PostgreSQL performance mode
+
+The default deployment keeps PostgreSQL durability settings. For scan-heavy installations where the database is treated as a rebuildable index/cache of the source filesystem, set this in `deploy/.env`:
+
+```bash
+FNORD_POSTGRES_DISPOSABLE=true
+```
+
+Then recreate PostgreSQL and the backend so the server command changes take effect:
+
+```bash
+./scripts/preflight
+./scripts/fnord stop backend
+./scripts/fnord up -d --force-recreate postgres
+./scripts/fnord up -d backend
+```
+
+When active, `scripts/fnord` automatically layers `deploy/compose.postgres-disposable.yaml` over the normal Compose stack. The profile currently applies:
+
+```text
+fsync=off
+synchronous_commit=off
+full_page_writes=off
+wal_level=minimal
+archive_mode=off
+max_wal_senders=0
+shared_buffers=256MB
+checkpoint_timeout=30min
+checkpoint_completion_target=0.9
+max_wal_size=8GB
+min_wal_size=1GB
+wal_compression=on
+```
+
+This does **not** eliminate WAL for ordinary permanent-table inserts. It reduces WAL requirements and, more importantly for HDD-backed databases, removes synchronous durability work and spreads checkpoint pressure. PostgreSQL still uses transactional semantics during normal operation, but a power failure, kernel crash, storage failure, or forced database termination can lose recent transactions or leave the cluster unrecoverable. In this mode the supported recovery policy after such an unclean failure is to treat the database as disposable: recreate the PostgreSQL database volume and rescan rather than trusting partially recovered scan evidence.
+
+A normal backend restart does not by itself require database recreation. A clean PostgreSQL shutdown/restart is also expected to remain usable, but the mode intentionally provides no crash-durability guarantee.
+
+To verify the rendered deployment before starting it:
+
+```bash
+./scripts/preflight
+./scripts/fnord config --format json
+```
+
+Preflight prints a prominent warning whenever the full disposable profile is active and rejects a partially rendered profile.
+
+To return to durable mode, set `FNORD_POSTGRES_DISPOSABLE=false`. The simplest fully safe transition is to recreate the disposable database volume and rescan. If preserving an existing cluster instead, PostgreSQL requires all database files to be synchronized before relying on `fsync=on` again; use PostgreSQL's documented `initdb --sync-only` procedure while the server is stopped rather than merely toggling the flag.
 
 ## Stop, restart and passwords
 

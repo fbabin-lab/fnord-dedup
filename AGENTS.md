@@ -12,7 +12,7 @@ Use SHA-256, not SHA-1. The default scan hashes only files whose sizes occur at 
 
 Every accepted hash belongs to one scan observation and full successful read. Never accept partial digests or silently reuse a prior scan's hash. Check descriptor metadata before/after reading and invalidate evidence on source changes. Same file in two scans is not two copies. Hard-link paths are not separately stored copies. Report physical savings as unknown, not guaranteed.
 
-Persist jobs, work claims, control requests, checkpoints, and fencing tokens in PostgreSQL. Pausing/cancelling is cooperative. Restart incomplete file reads at byte zero; replay unfinished directories idempotently. Never rely on an in-memory queue as the sole source of work. Never claim instant cancellation of blocked filesystem I/O.
+Persist jobs, work claims, control requests, checkpoints, and fencing tokens in PostgreSQL. The default deployment must retain PostgreSQL crash durability. The explicit `FNORD_POSTGRES_DISPOSABLE=true` deployment mode is the only exception: it deliberately weakens database crash durability for scan throughput and must remain opt-in/off by default. Pausing/cancelling is cooperative. Restart incomplete file reads at byte zero; replay unfinished directories idempotently. Never rely on an in-memory queue as the sole source of work. Never claim instant cancellation of blocked filesystem I/O.
 
 ## Implementation practice
 

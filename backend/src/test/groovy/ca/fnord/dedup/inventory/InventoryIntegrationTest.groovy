@@ -157,7 +157,7 @@ class InventoryIntegrationTest {
         assertNull(row.blocks)
         assertNull(row.uid)
         assertNull(row.gid)
-        assertNull(row.link_count)
+        assertNotNull(row.link_count)
     }
 
     @Test void creationIsIdempotentAndRejectsUnsupportedOptionsAndQueueFlood() {

@@ -292,6 +292,87 @@ class InventoryStore {
             stable
         }
     }
+    void publishMemoryInventory(WorkClaim c, List<MemoryInventoryEntry> entries) {
+        if (entries.isEmpty()) throw new IllegalArgumentException('Memory inventory must contain its source root.')
+        tx.executeWithoutResult { status ->
+            fence(c)
+
+            Map<ByteBuffer,UUID> knownLocations = new HashMap<>()
+            for (Map row : jdbc.queryForList('SELECT id,relative_path_bytes FROM file_location WHERE source_id=? AND source_instance_id=?',c.sourceId,c.sourceInstanceId))
+                knownLocations.put(ByteBuffer.wrap((byte[])row.relative_path_bytes).asReadOnlyBuffer(),(UUID)row.id)
+
+            List<UUID> locations = new ArrayList<UUID>(entries.size())
+            String locationSql = '''INSERT INTO file_location(id,source_id,source_instance_id,parent_id,name_bytes,relative_path_bytes,display_name,display_path,extension)
+                VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT (source_id,source_instance_id,parent_id,name_bytes) DO NOTHING'''
+            List<Object[]> locationBatch = new ArrayList<>()
+            for (int i=0;i<entries.size();i++) {
+                MemoryInventoryEntry e = entries.get(i)
+                UUID id
+                if (i == 0) id = c.locationId
+                else {
+                    id = knownLocations.get(ByteBuffer.wrap(e.path).asReadOnlyBuffer())
+                    if (id == null) {
+                        id = UUID.randomUUID()
+                        UUID parent = locations.get(e.parentIndex)
+                        locationBatch.add([id,c.sourceId,c.sourceInstanceId,parent,e.name,e.path,
+                            e.name.length == 0 ? '/' : RawPath.display(e.name),e.path.length == 0 ? '/' : RawPath.display(e.path),extension(e.name)] as Object[])
+                        knownLocations.put(ByteBuffer.wrap(e.path).asReadOnlyBuffer(),id)
+                        if (locationBatch.size() >= 1000) { jdbc.batchUpdate(locationSql,locationBatch); locationBatch.clear() }
+                    }
+                }
+                locations.add(id)
+            }
+            if (!locationBatch.isEmpty()) jdbc.batchUpdate(locationSql,locationBatch)
+
+            Set<UUID> existing = new HashSet<>()
+            for (Map row : jdbc.queryForList('SELECT location_id FROM scan_entry WHERE scan_id=?',c.scanId)) existing.add((UUID)row.location_id)
+
+            String entrySql = '''INSERT INTO scan_entry(id,scan_id,location_id,source_id,source_instance_id,entry_type,size_bytes,metadata_mask,mode,
+                inode,mount_id,device_major,device_minor,mtime_seconds,mtime_nanos,ctime_seconds,ctime_nanos,birth_seconds,birth_nanos,mtime,ctime,
+                link_count,blocks,uid,gid,filesystem_type,symlink_target,discovery_status,directory_coverage,fingerprint,observed_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?) ON CONFLICT (scan_id,location_id) DO NOTHING'''
+            List<Object[]> entryBatch = new ArrayList<>()
+            BatchCounters counters = new BatchCounters()
+            List<Integer> errorIndexes = new ArrayList<>()
+            for (int i=0;i<entries.size();i++) {
+                MemoryInventoryEntry e = entries.get(i)
+                UUID locationId = locations.get(i)
+                if (!existing.contains(locationId)) {
+                    String coverage = e.entryType == 'DIRECTORY' ? (e.directoryComplete ? 'COMPLETE' : 'PARTIAL') : null
+                    entryBatch.add([UUID.randomUUID(),c.scanId,locationId,c.sourceId,c.sourceInstanceId,e.entryType,e.sizeBytes,
+                        null,null,null,unsigned(e.mountId),e.deviceMajor,e.deviceMinor,e.mtimeSeconds,e.mtimeNanos,e.ctimeSeconds,e.ctimeNanos,
+                        e.birthSeconds,e.birthNanos,e.mtimeSeconds == null ? null : timestamp(e.mtimeSeconds,e.mtimeNanos ?: 0),
+                        e.ctimeSeconds == null ? null : timestamp(e.ctimeSeconds,e.ctimeNanos ?: 0),
+                        null,null,null,null,null,e.linkTarget,e.errorCode ?: 'OBSERVED',coverage,json(e.fingerprint()),Timestamp.from(e.observedAt)] as Object[])
+                    counters.entries++
+                    if (e.entryType == 'REGULAR') { counters.files++; if (e.sizeBytes != null) counters.bytes = counters.bytes.add(new BigDecimal(e.sizeBytes)) }
+                    if (e.entryType == 'DIRECTORY') counters.directories++
+                    if (entryBatch.size() >= 1000) { jdbc.batchUpdate(entrySql,entryBatch); entryBatch.clear() }
+                }
+                if (e.errorCode != null) errorIndexes.add(i)
+            }
+            if (!entryBatch.isEmpty()) jdbc.batchUpdate(entrySql,entryBatch)
+
+            if (counters.entries > 0L) {
+                jdbc.update('''UPDATE job SET discovered_entries=discovered_entries+?,discovered_files=discovered_files+?,
+                    discovered_directories=discovered_directories+?,discovered_bytes=discovered_bytes+?,
+                    checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?''',
+                    counters.entries,counters.files,counters.directories,counters.bytes,c.jobId)
+            } else jdbc.update('UPDATE job SET checkpoint_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=?',c.jobId)
+
+            for (Integer i : errorIndexes) {
+                MemoryInventoryEntry e = entries.get(i)
+                error(c,locations.get(i),e.errorCode,e.errorDetail ?: 'Metadata or directory enumeration failed.')
+            }
+            jdbc.update('UPDATE work_item SET checkpoint_at=clock_timestamp() WHERE id=?',c.id)
+            // This publication transaction can legitimately exceed one heartbeat interval.
+            // Refresh the leases just before commit; row locks prevent a competing owner
+            // from taking over while this transaction is publishing.
+            jdbc.update("UPDATE scheduler_lock SET expires_at=clock_timestamp()+interval '60 seconds' WHERE id=1 AND owner=? AND token=?",c.owner,c.schedulerToken)
+            jdbc.update("UPDATE work_item SET lease_expires_at=clock_timestamp()+interval '60 seconds' WHERE id=? AND lease_owner=? AND lease_token=?",c.id,c.owner,c.token)
+        }
+    }
+
     UUID location(UUID sourceId, UUID instanceId, UUID parentId, byte[] name, byte[] path) {
         UUID id = UUID.randomUUID()
         Map inserted = one('''INSERT INTO file_location(id,source_id,source_instance_id,parent_id,name_bytes,relative_path_bytes,display_name,display_path,extension)
